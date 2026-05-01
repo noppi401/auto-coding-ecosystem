@@ -1,0 +1,30 @@
+{
+  "name": "auto-coding-ecosystem",
+  "version": "1.0.0",
+  "description": "Multi-agent automated coding pipeline powered by Claude",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "claude",
+    "agent",
+    "automation",
+    "coding",
+    "github"
+  ],
+  "author": "noppi401",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "typescript": "^5.5.4",
+    "tsx": "^4.17.0"
+  }
+}

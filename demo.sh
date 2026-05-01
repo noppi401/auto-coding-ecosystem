@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Demo script - shows how to run the ecosystem interactively
+# This is meant to be run in VS Code terminal, not in bash
+
+echo "Auto Coding Ecosystem - Interactive Demo"
+echo "========================================"
+echo ""
+echo "This ecosystem requires interactive input from Claude."
+echo ""
+echo "Step 1: Open VS Code terminal and run:"
+echo ""
+echo "  npx tsx src/index.ts start \\"
+echo "    --instruction 'Create a Node.js CLI tool that displays Hello World' \\"
+echo "    --repo-name 'test-hello'"
+echo ""
+echo "Step 2: When prompted, copy the system prompt + user message to Claude"
+echo "        Get the response and paste it back into the terminal"
+echo ""
+echo "Step 3: Repeat for Design generation and Task decomposition"
+echo ""
+echo "Step 4: Approve tasks, then run Phase 2:"
+echo ""
+echo "  npx tsx src/index.ts phase2"
+echo ""
+echo "========================================"
+echo ""
+echo "Or use the prebuilt version:"
+echo ""
+echo "  node dist/index.js start \\"
+echo "    --instruction '...' \\"
+echo "    --repo-name 'my-project'"
