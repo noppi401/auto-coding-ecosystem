@@ -1,6 +1,6 @@
 export class LlmUsageLimitError extends Error {
   constructor(
-    public readonly provider: 'claude' | 'codex',
+    public readonly provider: 'claude' | 'codex' | 'gemini',
     message: string
   ) {
     super(message);

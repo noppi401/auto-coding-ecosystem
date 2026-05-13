@@ -11,6 +11,7 @@ import {
   isCodexUsageLimitMessage,
   markClaudeUsageLimitReached,
 } from '../utils/llm-errors.js';
+import readline from 'readline';
 
 interface ClaudeOutput {
   type: string;
@@ -19,7 +20,7 @@ interface ClaudeOutput {
   session_id: string;
 }
 
-type LlmProvider = 'auto' | 'claude' | 'codex' | 'local';
+type LlmProvider = 'auto' | 'claude' | 'codex' | 'local' | 'gemini';
 type AgentRoute = 'implementation' | 'planning';
 
 export class BaseAgent {
@@ -85,7 +86,7 @@ export class BaseAgent {
     ).toLowerCase() as LlmProvider;
     const localEnabled = Boolean(this.getLocalLlmUrl() && this.getLocalLlmModel());
 
-    if (!['auto', 'claude', 'codex', 'local'].includes(provider)) {
+    if (!['auto', 'claude', 'codex', 'local', 'gemini'].includes(provider)) {
       throw new Error(`Unsupported LLM provider: ${provider}`);
     }
 
@@ -96,6 +97,11 @@ export class BaseAgent {
         reason: provider === 'claude' ? 'Claude usage limit already reached' : 'configured provider',
       });
       return await this.invokeCodex(userMessage);
+    }
+
+    // Handle Gemini CLI mode (Subscription-based, no API Key needed)
+    if (provider === 'gemini') {
+      return await this.invokeGemini(userMessage);
     }
 
     if (provider === 'local') {
@@ -227,6 +233,8 @@ export class BaseAgent {
   }
 
   private async invokeClaude(userMessage: string): Promise<string> {
+    let systemPromptFile: string | null = null;
+
     try {
       logger.info(`${this.agentName} invoking Claude...`);
 
@@ -235,25 +243,26 @@ export class BaseAgent {
       if (this.sessionId && process.env.RESUME_AGENT_SESSIONS === 'true') {
         args.push('--continue', this.sessionId);
       } else if (this.systemPrompt) {
-        // Write system prompt to temp file to avoid quoting issues
-        const systemPromptFile = join(tmpdir(), `claude-system-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`);
+        systemPromptFile = join(
+          tmpdir(),
+          `claude-system-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
+        );
         await fs.writeFile(systemPromptFile, this.systemPrompt);
-        args.push('--system-prompt', `@${systemPromptFile}`);
+        // --system-prompt-file avoids @path quoting issues on Windows
+        args.push('--system-prompt-file', systemPromptFile);
       }
 
-      // Write user message to temp file to avoid shell quoting issues
-      const tempFile = join(tmpdir(), `claude-prompt-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`);
-      await fs.writeFile(tempFile, userMessage);
-      args.push('-p', '--model', process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001', '--output-format', 'json', `@${tempFile}`);
+      const route = this.getAgentRoute();
+      const model =
+        route === 'implementation'
+          ? (process.env.IMPLEMENTATION_CLAUDE_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6')
+          : (process.env.PLANNING_CLAUDE_MODEL || process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001');
 
-      const stdout = await this._execClaudeCommand('npm', ['exec', 'claude', '--', ...args]);
+      // Pass prompt via stdin to avoid Windows path/quoting issues with @file syntax.
+      // --dangerously-skip-permissions prevents interactive permission prompts that would hang the process.
+      args.push('-p', '--model', model, '--output-format', 'json', '--dangerously-skip-permissions');
 
-      await fs.unlink(tempFile).catch(() => {});
-      // Clean up system prompt file if it exists
-      if (this.systemPrompt && args[0] === '--system-prompt') {
-        const systemPromptPath = args[1].replace(/^@/, '');
-        await fs.unlink(systemPromptPath).catch(() => {});
-      }
+      const stdout = await this._execCommand('claude', args, userMessage);
 
       try {
         const output = JSON.parse(stdout) as ClaudeOutput;
@@ -278,6 +287,71 @@ export class BaseAgent {
     } catch (err) {
       logger.error(`${this.agentName} failed`, err);
       throw err;
+    } finally {
+      if (systemPromptFile) {
+        await fs.unlink(systemPromptFile).catch(() => {});
+      }
+    }
+  }
+
+  private async invokeGemini(userMessage: string): Promise<string> {
+    try {
+      logger.info(`${this.agentName} invoking Gemini via CLI...`);
+
+      const route = this.getAgentRoute();
+      const model = route === 'implementation'
+        ? (process.env.IMPLEMENTATION_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash')
+        : (process.env.PLANNING_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash');
+
+      logger.info(`${this.agentName} using Gemini model: ${model}`);
+
+      const fullPrompt = this.systemPrompt 
+        ? `System Instruction: ${this.systemPrompt}\n\nUser Message: ${userMessage}`
+        : userMessage;
+
+      /**
+       * ヘルプに基づいた引数構成:
+       * -m: モデル指定
+       * -o json: JSON出力
+       * -p: プロンプト（非対話モードを有効化）
+       * 
+       * Windowsのコマンドライン文字数制限（8,191文字）を回避するため、
+       * プロンプト本体は引数ではなく stdin (標準入力) 経由で渡します。
+       */
+      const args = [
+        '-m', model,
+        '-o', 'json',
+        '-p', 'Instruction'
+      ];
+
+      // コマンドを実行し、fullPrompt を標準入力から流し込みます
+      const stdout = await this._execCommand('gemini', args, fullPrompt);
+
+      let jsonStr = stdout;
+      const firstCurly = stdout.indexOf('{');
+      const lastCurly = stdout.lastIndexOf('}');
+      if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
+        jsonStr = stdout.substring(firstCurly, lastCurly + 1);
+      }
+
+      const output = JSON.parse(jsonStr);
+      // JSON出力時のプロパティ名はCLIの実装に依存しますが、一般的な content/result を想定
+      const result = output.content || output.result || output.text || 
+        (output.candidates && output.candidates[0]?.content?.parts?.[0]?.text) ||
+        (typeof output === 'string' ? output : stdout);
+      
+      logger.info(`${this.agentName} completed via Gemini CLI`);
+      return result;
+
+    } catch (err) {
+      const errMsg = String(err);
+      // Gemini CLI 特有のクォータエラーメッセージを検知
+      if (errMsg.includes('TerminalQuotaError') || errMsg.includes('QUOTA_EXHAUSTED') || errMsg.includes('exhausted your capacity')) {
+        logger.warn(`${this.agentName} Gemini usage limit detected`);
+        throw new LlmUsageLimitError('gemini', errMsg);
+      }
+      logger.error(`${this.agentName} Gemini CLI invocation failed`, { error: errMsg });
+      throw err;
     }
   }
 
@@ -290,29 +364,13 @@ export class BaseAgent {
       // On Windows, use cmd.exe to execute the command
       const isWindows = process.platform === 'win32';
 
-      let child;
-      if (isWindows) {
-        // Build command line carefully for cmd.exe
-        // Args that contain spaces need quoting
-        const cmdParts = [command, ...args.map(a => {
-          // If arg contains spaces, quote it
-          if (a.includes(' ')) {
-            return `"${a.replace(/"/g, '\\"')}"`;
-          }
-          return a;
-        })];
-        const cmdLine = cmdParts.join(' ');
-        child = spawn('cmd.exe', ['/s', '/c', cmdLine], {
-          env: process.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-          shell: false,
-        });
-      } else {
-        child = spawn(command, args, {
-          env: process.env,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-      }
+      // Use shell: true on Windows to allow Node to handle cmd.exe wrapping and argument escaping.
+      // This prevents "positional prompt" errors caused by manual string concatenation.
+      const child = spawn(command, args, {
+        env: process.env,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: isWindows,
+      });
 
       let stdout = '';
       let stderr = '';
@@ -374,5 +432,41 @@ export class BaseAgent {
 
   private isClaudeUsageLimitError(err: unknown): boolean {
     return isClaudeUsageLimitMessage(err);
+  }
+
+  /**
+   * Markdownや二重エスケープされた文字を含む文字列からJSONを堅牢に抽出・パースします。
+   */
+  protected robustJsonParse(input: string): any {
+    let cleaned = input.trim();
+
+    // 1. Markdownコードブロックからの抽出を試行
+    const markdownMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+    if (markdownMatch && markdownMatch[1]) {
+      cleaned = markdownMatch[1].trim();
+    } else {
+      // 2. 最初の { と 最後の } の間を抽出
+      const firstCurly = cleaned.indexOf('{');
+      const lastCurly = cleaned.lastIndexOf('}');
+      if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
+        cleaned = cleaned.substring(firstCurly, lastCurly + 1);
+      }
+    }
+
+    try {
+      return JSON.parse(cleaned);
+    } catch (err) {
+      // 3. フォールバック: 二重エスケープ（\" など）のハンドリング
+      if (cleaned.includes('\\"')) {
+        try {
+          const unescaped = cleaned
+            .replace(/\\"/g, '"')
+            .replace(/\\\\/g, '\\')
+            .replace(/\\n/g, '\n');
+          return JSON.parse(unescaped);
+        } catch (innerErr) { /* ignore */ }
+      }
+      throw err;
+    }
   }
 }

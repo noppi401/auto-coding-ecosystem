@@ -12,12 +12,17 @@ build/
 .env.local
 .env.*.local
 
-# IDE
+# IDE / tools
 .vscode/
 .idea/
+.claude/
+.continue/
 *.swp
 *.swo
 *~
+
+# Temporary instruction files
+change-request.txt
 
 # OS
 .DS_Store

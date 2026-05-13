@@ -5,6 +5,7 @@
 - Node.js 18+
 - GitHub account with personal access token
 - Claude access (for LLM prompts)
+- Gemini API access (optional)
 
 ## Setup
 
@@ -61,7 +62,7 @@ npx ts-node src/index.ts phase2
 
 For each task, the system will:
 1. Display code generation prompt → **Paste Claude's response** (JSON with files)
-2. Display code review prompt → **Paste Claude's response** (JSON with comments)
+2. Display code review prompt → **Paste AI's response (Claude/Gemini/Codex)** (JSON with comments)
 3. If changes needed, display fix prompt → **Paste Claude's response**
 4. Repeat review/fix until approved
 5. Automatically merge to main

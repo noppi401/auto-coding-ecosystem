@@ -162,6 +162,7 @@ npx tsx src/index.ts status
 - ✅ Uses Octokit (official GitHub SDK)
 - ✅ Tree API for multi-file atomic commits
 - ✅ Proper error handling for all operations
+- ✅ Multi-LLM Support: Claude, Codex, Gemini (New)
 - ✅ Retry logic with exponential backoff
 
 ### Cost Efficiency
