@@ -358,28 +358,16 @@ export class Orchestrator {
       const diffUnchangedAfterFix =
         iteration > 1 && lastFixInputDiff === prDiff;
 
-      // Convert diff to files array format for review agent
-      const prFiles: Array<{ filename: string; changes: number; patch: string }> = [
-        { filename: 'pull_request.diff', changes: 1, patch: prDiff }
-      ];
-
       // Review
       const reviewResult =
         iteration === 1
           ? await reviewAgent.reviewPr(
               task,
               prDiff,
-              prFiles,
               state.requirementsDoc,
               state.designDoc
             )
-          : await reviewAgent.reReviewAfterFix(
-              task,
-              prDiff,
-              prFiles,
-              state.requirementsDoc,
-              state.designDoc
-            );
+          : await reviewAgent.reReviewAfterFix(task, prDiff);
 
       const combinedReviewResult = await this._runCodexReviewIfEnabled(
         task,
@@ -476,7 +464,13 @@ export class Orchestrator {
           `${blockingComments.length} blocking comments`
         );
 
-        const currentFiles: { [path: string]: string } = {};
+        // Extract changed file paths from the diff so FixAgent has real file contents
+        const changedPaths = [...new Set(
+          [...prDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1])
+        )];
+        const currentFiles: { [path: string]: string } = changedPaths.length > 0
+          ? await this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, changedPaths)
+          : {};
         currentFiles['pr.diff'] = prDiff;
         lastFixInputDiff = prDiff;
 
@@ -484,9 +478,7 @@ export class Orchestrator {
         const fixOutput = await fixAgent.fixCode(
           task,
           blockingComments,
-          currentFiles,
-          state.requirementsDoc,
-          state.designDoc
+          currentFiles
         );
 
         // Commit fixes
@@ -599,9 +591,13 @@ export class Orchestrator {
         state.designDoc
       );
 
+      // Approval: primary reviewer decides; Codex only adds extra blocking comments
+      // Using AND caused both reviewers to independently block, making merges near-impossible
+      const mergedComments = [...primaryReview.comments, ...codexReview.comments];
+      const hasBlockingFromEither = mergedComments.some(c => c.severity === 'blocking');
       return {
-        approved: primaryReview.approved && codexReview.approved,
-        comments: [...primaryReview.comments, ...codexReview.comments],
+        approved: primaryReview.approved && !hasBlockingFromEither,
+        comments: mergedComments,
         summary: [
           `Primary review: ${primaryReview.summary}`,
           `Codex review: ${codexReview.summary}`,

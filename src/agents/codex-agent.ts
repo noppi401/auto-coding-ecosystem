@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import { join } from 'path';
+import { BaseAgent } from './base-agent.js';
 import { tmpdir } from 'os';
 import { Task, ReviewComment, ReviewResult } from '../state/types.js';
 import { CodeOutput } from './coding-agent.js';
@@ -12,7 +13,11 @@ import {
   isCodexUsageLimitMessage,
 } from '../utils/llm-errors.js';
 
-export class CodexAgent {
+export class CodexAgent extends BaseAgent {
+  constructor() {
+    super('', 'CodexAgent'); // CodexAgent does not use a system prompt file directly
+  }
+
   async generateCode(
     task: Task,
     requirementsDoc: string,
@@ -43,7 +48,7 @@ Return ONLY valid JSON with this structure:
   "prBody": "..."
 }`;
 
-    const response = await this.invoke(prompt);
+    const response = await this.execCodexPrompt(prompt);
     return this.parseCode(response);
   }
 
@@ -78,7 +83,7 @@ Return ONLY valid JSON with this structure:
   "summary": "review summary"
 }`;
 
-    const response = await this.invoke(prompt);
+    const response = await this.execCodexPrompt(prompt);
     return this.parseReview(response);
   }
 
@@ -121,11 +126,11 @@ Return ONLY valid JSON with this structure:
   "fixSummary": "..."
 }`;
 
-    const response = await this.invoke(prompt);
+    const response = await this.execCodexPrompt(prompt);
     return this.parseFix(response);
   }
 
-  private async invoke(prompt: string): Promise<string> {
+  private async execCodexPrompt(prompt: string): Promise<string> {
     const outputFile = join(
       tmpdir(),
       `codex-output-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
@@ -248,8 +253,7 @@ Return ONLY valid JSON with this structure:
   }
 
   private parseJson(response: string): any {
-    const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    const cleanedResponse = jsonMatch ? jsonMatch[1] : response;
-    return JSON.parse(cleanedResponse);
+    // BaseAgentの堅牢なパース処理を使用
+    return this.robustJsonParse(response);
   }
 }

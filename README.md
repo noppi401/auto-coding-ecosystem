@@ -92,6 +92,27 @@ npm run dev -- phase2 --retry-failed --loop-until-limit --limit-provider all
 npm run dev -- status
 ```
 
+### モデル指定オプション
+
+すべてのコマンドで以下のオプションが使えます。環境変数よりCLI引数が優先されます。
+
+```bash
+# planning / implementation 両方を同じモデルに変更
+npm run dev -- start ... --claude-model claude-opus-4-7
+
+# planning エージェント（要件・設計・タスク分解）だけ変更
+npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
+
+# implementation エージェント（CodingAgent / FixAgent）だけ変更
+npm run dev -- phase2 --impl-model claude-sonnet-4-6
+```
+
+| オプション | 対応環境変数 | 説明 |
+| --- | --- | --- |
+| `--claude-model <id>` | `PLANNING_CLAUDE_MODEL` / `IMPLEMENTATION_CLAUDE_MODEL` 両方 | planning と implementation を一括で変更 |
+| `--planning-model <id>` | `PLANNING_CLAUDE_MODEL` | 要件・設計・タスク分解エージェントのモデル |
+| `--impl-model <id>` | `IMPLEMENTATION_CLAUDE_MODEL` | CodingAgent・FixAgent のモデル |
+
 ## 実行フェーズ
 
 ### Phase 1
@@ -130,6 +151,7 @@ CLAUDE_MODEL=claude-haiku-4-5-20251001
 | provider | 内容 |
 |---|---|
 | `claude` | Claude CLI を使う。usage limit 時は Codex に切り替える |
+| `gemini` | Gemini を使う（対話モードまたはAPI） |
 | `codex` | 最初から Codex CLI を使う |
 | `local` | OpenAI互換のローカルLLMを使う |
 
@@ -158,6 +180,7 @@ npm run dev -- phase2 --retry-failed --loop-until-limit --limit-provider all
 | `claude` | Claude だけを使う。Claude limit で停止し、Codex へは切り替えない |
 | `codex` | Codex だけを使う。Codex limit で停止する |
 | `all` | Claude から使う。Claude limit 後は Codex に切り替え、Codex limit で停止する |
+| `gemini` | Gemini だけを使う。Gemini limit で停止する |
 
 `--loop-until-limit` を付けた場合、`--retry-failed` は自動的に有効になります。安全のため最大ループ回数は `PHASE2_LOOP_MAX_ATTEMPTS` で制御できます。
 
@@ -179,7 +202,7 @@ npm run dev -- phase2 --retry-failed --loop-until-limit --limit-provider all
 ## 主要な環境変数
 
 | 変数 | 既定値 | 説明 |
-|---|---|---|
+| --- | --- | --- |
 | `GITHUB_TOKEN` | なし | GitHub CLI が使うトークン |
 | `GITHUB_OWNER` | なし | 既定の GitHub owner |
 | `BASE_BRANCH` | `main` | PRのベースブランチ |
@@ -187,6 +210,10 @@ npm run dev -- phase2 --retry-failed --loop-until-limit --limit-provider all
 | `PLANNING_LLM_PROVIDER` | `claude` | Phase 1 系のLLM |
 | `IMPLEMENTATION_LLM_PROVIDER` | `claude` | コード生成/修正のLLM |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Claude CLI モデル |
+| `PLANNING_GEMINI_MODEL` | `gemini-2.5-flash` | Gemini 計画用モデル |
+| `IMPLEMENTATION_GEMINI_MODEL` | `gemini-2.5-flash` | Gemini 実装用モデル |
+| `GEMINI_API_KEY` | なし | Gemini API キー |
+| `GEMINI_MODEL` | なし | Gemini 共通モデル名 (個別指定がない場合に使用) |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex独立レビューを有効化するか |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | Claude等のコマンドタイムアウト |

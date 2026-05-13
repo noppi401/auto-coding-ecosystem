@@ -29,11 +29,11 @@ export class CodingAgent extends BaseAgent {
 TASK: ${task.title}
 SUMMARY: ${task.summary}
 
-REQUIREMENTS:
-${requirementsDoc}
+REQUIREMENTS (excerpt):
+${requirementsDoc.substring(0, 6000)}
 
-DESIGN:
-${designDoc}
+DESIGN (excerpt):
+${designDoc.substring(0, 4000)}
 
 ${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES:
 ${Object.entries(currentFiles)

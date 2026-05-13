@@ -16,9 +16,7 @@ export class FixAgent extends BaseAgent {
   async fixCode(
     task: Task,
     reviewComments: ReviewComment[],
-    currentFiles: { [path: string]: string },
-    requirementsDoc: string,
-    designDoc: string
+    currentFiles: { [path: string]: string }
   ): Promise<FixOutput> {
     await this.loadSystemPrompt();
 
@@ -46,7 +44,7 @@ export class FixAgent extends BaseAgent {
     const currentFilesText = Object.entries(currentFiles)
       .map(
         ([path, content]) =>
-          `FILE: ${path}\n${content.substring(0, 1000)}`
+          `FILE: ${path}\n${content.substring(0, 8000)}`
       )
       .join('\n\n');
 
@@ -54,12 +52,6 @@ export class FixAgent extends BaseAgent {
 
 TASK: ${task.title}
 SUMMARY: ${task.summary}
-
-REQUIREMENTS:
-${requirementsDoc}
-
-DESIGN:
-${designDoc}
 
 CURRENT FILES:
 ${currentFilesText}
@@ -80,11 +72,14 @@ Use camelCase keys exactly as shown:
     let fixOutput: FixOutput;
     try {
       fixOutput = this.parseFixFromResponse(result);
+      if (fixOutput.files.length === 0) {
+        throw new Error('FixAgent returned an empty files array.');
+      }
     } catch (err) {
-      logger.warn('FixAgent returned invalid JSON; retrying with stricter output instructions', String(err));
+      logger.warn('FixAgent returned invalid or empty JSON; retrying with stricter output instructions', String(err));
       result = await this.invoke(
         [
-          'Your previous response was not valid JSON.',
+          'Your previous response was invalid or contained no file changes.',
           'Return ONLY one valid JSON object.',
           'Use contentBase64 for every file body.',
           'Do not include markdown, explanations, or raw source code strings.',
@@ -104,9 +99,8 @@ Use camelCase keys exactly as shown:
 
   parseFixFromResponse(response: string): FixOutput {
     try {
-      const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      const cleanedResponse = jsonMatch ? jsonMatch[1] : response;
-      return this.normalizeFixOutput(JSON.parse(cleanedResponse));
+      const data = this.robustJsonParse(response);
+      return this.normalizeFixOutput(data);
     } catch (err) {
       logger.error('Failed to parse fix output', err);
       throw err;

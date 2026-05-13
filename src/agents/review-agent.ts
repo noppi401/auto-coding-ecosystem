@@ -2,6 +2,10 @@ import { BaseAgent } from './base-agent.js';
 import { Task, ReviewResult, ReviewComment } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 
+const REQ_DOC_MAX = 4000;
+const DESIGN_DOC_MAX = 3000;
+const DIFF_MAX = 20000;
+
 export class ReviewAgent extends BaseAgent {
   constructor() {
     super('review.md', 'ReviewAgent');
@@ -10,7 +14,6 @@ export class ReviewAgent extends BaseAgent {
   async reviewPr(
     task: Task,
     prDiff: string,
-    prFiles: Array<{ filename: string; changes: number; patch: string }>,
     requirementsDoc: string,
     designDoc: string
   ): Promise<ReviewResult> {
@@ -18,26 +21,19 @@ export class ReviewAgent extends BaseAgent {
 
     logger.section(`ReviewAgent: Reviewing PR for "${task.title}"`);
 
-    const fileSummary = prFiles
-      .map((f) => `- ${f.filename}: ${f.changes} changes`)
-      .join('\n');
-
     const prompt = `Review the following PR for the task:
 
 TASK: ${task.title}
 SUMMARY: ${task.summary}
 
-REQUIREMENTS:
-${requirementsDoc}
+REQUIREMENTS (excerpt):
+${requirementsDoc.substring(0, REQ_DOC_MAX)}
 
-DESIGN:
-${designDoc}
+DESIGN (excerpt):
+${designDoc.substring(0, DESIGN_DOC_MAX)}
 
-FILES CHANGED:
-${fileSummary}
-
-PR DIFF (first 5000 chars):
-${prDiff.substring(0, 5000)}
+PR DIFF (first ${DIFF_MAX} chars):
+${prDiff.substring(0, DIFF_MAX)}
 
 Return ONLY valid JSON (no markdown, no explanations) with this structure:
 {
@@ -59,10 +55,7 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
 
   async reReviewAfterFix(
     task: Task,
-    updatedPrDiff: string,
-    prFiles: Array<{ filename: string; changes: number; patch: string }>,
-    requirementsDoc: string,
-    designDoc: string
+    updatedPrDiff: string
   ): Promise<ReviewResult> {
     await this.loadSystemPrompt();
 
@@ -70,19 +63,12 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
       `ReviewAgent: Re-reviewing after fixes (iteration ${task.reviewIteration})`
     );
 
-    const fileSummary = prFiles
-      .map((f) => `- ${f.filename}: ${f.changes} changes`)
-      .join('\n');
-
     const prompt = `The developer has made fixes based on your previous feedback. Please re-review:
 
 TASK: ${task.title}
 
-FILES CHANGED:
-${fileSummary}
-
-UPDATED DIFF (first 5000 chars):
-${updatedPrDiff.substring(0, 5000)}
+UPDATED DIFF (first ${DIFF_MAX} chars):
+${updatedPrDiff.substring(0, DIFF_MAX)}
 
 Please check if all blocking issues have been fixed and suggest any remaining improvements.
 
@@ -105,10 +91,7 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
 
   parseReviewFromResponse(response: string): ReviewResult {
     try {
-      const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      const objectMatch = response.match(/\{[\s\S]*\}/);
-      const cleanedResponse = jsonMatch ? jsonMatch[1] : objectMatch ? objectMatch[0] : response;
-      const data = JSON.parse(cleanedResponse);
+      const data = this.robustJsonParse(response);
 
       const comments: ReviewComment[] = (
         data.comments || []

@@ -89,7 +89,7 @@ async function cmdStart(
   }
 }
 
-type LimitProvider = 'claude' | 'codex' | 'all';
+type LimitProvider = 'claude' | 'codex' | 'gemini' | 'all';
 
 async function cmdPhase2(
   retryFailed: boolean = false,
@@ -172,6 +172,9 @@ function configureAiTokenMode(limitProvider: LimitProvider): void {
   } else if (limitProvider === 'codex') {
     process.env.PLANNING_LLM_PROVIDER = 'codex';
     process.env.IMPLEMENTATION_LLM_PROVIDER = 'codex';
+  } else if (limitProvider === 'gemini') {
+    process.env.PLANNING_LLM_PROVIDER = 'gemini';
+    process.env.IMPLEMENTATION_LLM_PROVIDER = 'gemini';
   } else {
     process.env.PLANNING_LLM_PROVIDER = 'claude';
     process.env.IMPLEMENTATION_LLM_PROVIDER = 'claude';
@@ -297,13 +300,20 @@ async function main() {
     console.log('    Start Phase 1 (requirements, design, tasks)');
     console.log('    Use --auto to automatically continue to Phase 2');
     console.log();
-    console.log('  phase2 [--retry-failed] [--loop-until-limit] [--limit-provider claude|codex|all]');
+    console.log('  phase2 [--retry-failed] [--loop-until-limit] [--limit-provider claude|codex|gemini|all]');
     console.log('    Start Phase 2 (coding, review, merge)');
     console.log();
     console.log('  status');
     console.log('    Show project status');
+    console.log();
+    console.log('Model options (any command):');
+    console.log('  --claude-model <model-id>    Set both planning and implementation Claude model');
+    console.log('  --planning-model <model-id>  Set Claude model for planning agents only');
+    console.log('  --impl-model <model-id>      Set Claude model for implementation agents only');
     process.exit(1);
   }
+
+  applyModelOptions(args);
 
   const command = args[0];
 
@@ -394,6 +404,22 @@ async function main() {
 const stateManager = new StateManager();
 main();
 
+function applyModelOptions(args: string[]): void {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--claude-model' && i + 1 < args.length) {
+      process.env.PLANNING_CLAUDE_MODEL = args[i + 1];
+      process.env.IMPLEMENTATION_CLAUDE_MODEL = args[i + 1];
+      i++;
+    } else if (args[i] === '--planning-model' && i + 1 < args.length) {
+      process.env.PLANNING_CLAUDE_MODEL = args[i + 1];
+      i++;
+    } else if (args[i] === '--impl-model' && i + 1 < args.length) {
+      process.env.IMPLEMENTATION_CLAUDE_MODEL = args[i + 1];
+      i++;
+    }
+  }
+}
+
 function parseLimitProvider(args: string[]): LimitProvider {
   const index = args.indexOf('--limit-provider');
   if (index === -1) {
@@ -401,9 +427,9 @@ function parseLimitProvider(args: string[]): LimitProvider {
   }
 
   const value = args[index + 1];
-  if (value === 'claude' || value === 'codex' || value === 'all') {
-    return value;
+  if (value === 'claude' || value === 'codex' || value === 'gemini' || value === 'all') {
+    return value as LimitProvider;
   }
 
-  throw new Error('--limit-provider must be one of: claude, codex, all');
+  throw new Error('--limit-provider must be one of: claude, codex, gemini, all');
 }
