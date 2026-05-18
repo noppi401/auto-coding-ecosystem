@@ -8,6 +8,7 @@ import { CodeOutput } from './coding-agent.js';
 import { FixOutput } from './fix-agent.js';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
+import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import {
   LlmUsageLimitError,
   isCodexUsageLimitMessage,
@@ -135,6 +136,13 @@ Return ONLY valid JSON with this structure:
       tmpdir(),
       `codex-output-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
     );
+    const projectInstructions = await loadCodexProjectInstructions();
+    const fullPrompt = [
+      projectInstructions
+        ? `PROJECT RULES FROM CLAUDE.md:\n${projectInstructions}`
+        : '',
+      prompt,
+    ].filter(Boolean).join('\n\n');
 
     const args = [
       'exec',
@@ -159,7 +167,7 @@ Return ONLY valid JSON with this structure:
     args.push('-');
 
     try {
-      const stdout = await this.execCodex(await resolveCodexBin(), args, prompt);
+      const stdout = await this.execCodex(await resolveCodexBin(), args, fullPrompt);
       const finalMessage = await fs.readFile(outputFile, 'utf-8').catch(() => stdout);
       const trimmed = finalMessage.trim();
       if (isCodexUsageLimitMessage(trimmed)) {

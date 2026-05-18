@@ -37,7 +37,7 @@ export class GitHubAgent {
     await fs.mkdir(dirname(worktree), { recursive: true });
 
     if (!(await this.pathExists(join(worktree, '.git')))) {
-      await this.exec('gh', ['repo', 'clone', `${owner}/${repo}`, worktree]);
+      await this.cloneRepo(owner, repo, worktree);
     }
 
     await this.exec('git', ['fetch', 'origin', baseBranch], worktree);
@@ -99,10 +99,22 @@ export class GitHubAgent {
     await fs.mkdir(dirname(worktree), { recursive: true });
 
     if (!(await this.pathExists(join(worktree, '.git')))) {
-      await this.exec('gh', ['repo', 'clone', `${owner}/${repo}`, worktree]);
+      await this.cloneRepo(owner, repo, worktree);
     }
 
     await this.ensureBaseBranch(owner, repo, worktree, baseBranch);
+    const remoteBranch = await this.execAllowFailure(
+      'git',
+      ['ls-remote', '--heads', 'origin', branch],
+      worktree
+    );
+
+    if (remoteBranch?.trim()) {
+      await this.exec('git', ['fetch', 'origin', branch], worktree);
+      await this.exec('git', ['checkout', '-B', branch, `origin/${branch}`], worktree);
+      return;
+    }
+
     await this.exec('git', ['fetch', 'origin', baseBranch], worktree);
     await this.exec('git', ['checkout', '-B', branch, `origin/${baseBranch}`], worktree);
     await this.exec('git', ['push', '-u', 'origin', branch], worktree);
@@ -167,20 +179,34 @@ export class GitHubAgent {
     body: string
   ): Promise<PrInfo> {
     const baseBranch = process.env.BASE_BRANCH || 'main';
-    const result = await this.exec('gh', [
-      'pr',
-      'create',
-      '--repo',
-      `${owner}/${repo}`,
-      '--title',
-      title,
-      '--body',
-      body,
-      '--base',
-      baseBranch,
-      '--head',
-      branch,
-    ]);
+    let result: string;
+
+    try {
+      result = await this.exec('gh', [
+        'pr',
+        'create',
+        '--repo',
+        `${owner}/${repo}`,
+        '--title',
+        title,
+        '--body',
+        body,
+        '--base',
+        baseBranch,
+        '--head',
+        branch,
+      ]);
+    } catch (err) {
+      const existingPr = await this.findOpenPrForBranch(owner, repo, branch);
+      if (existingPr) {
+        logger.warn(
+          'PR already exists for branch; reusing existing PR',
+          `#${existingPr.prNumber} ${branch}`
+        );
+        return existingPr;
+      }
+      throw err;
+    }
 
     const prUrl = result.trim().split(/\r?\n/).find((line) => line.startsWith('http'));
     const match = prUrl?.match(/\/pull\/(\d+)/);
@@ -191,6 +217,42 @@ export class GitHubAgent {
     return {
       prNumber: Number(match[1]),
       prUrl,
+    };
+  }
+
+  async findOpenPrForBranch(
+    owner: string,
+    repo: string,
+    branch: string
+  ): Promise<PrInfo | null> {
+    const result = await this.execAllowFailure('gh', [
+      'pr',
+      'list',
+      '--repo',
+      `${owner}/${repo}`,
+      '--head',
+      branch,
+      '--state',
+      'open',
+      '--json',
+      'number,url',
+      '--limit',
+      '1',
+    ]);
+
+    if (!result?.trim()) {
+      return null;
+    }
+
+    const prs = JSON.parse(result) as Array<{ number?: number; url?: string }>;
+    const pr = prs[0];
+    if (!pr?.number || !pr.url) {
+      return null;
+    }
+
+    return {
+      prNumber: pr.number,
+      prUrl: pr.url,
     };
   }
 
@@ -469,6 +531,15 @@ export class GitHubAgent {
     if (!name?.trim()) {
       await this.exec('git', ['config', 'user.name', process.env.GIT_AUTHOR_NAME || 'Auto Coding Ecosystem'], worktree);
     }
+  }
+
+  private async cloneRepo(owner: string, repo: string, dest: string): Promise<void> {
+    const token = (await this.exec('gh', ['auth', 'token'])).trim();
+    await this.exec('git', [
+      'clone',
+      `https://x-access-token:${token}@github.com/${owner}/${repo}.git`,
+      dest,
+    ]);
   }
 
   private async execAllowFailure(

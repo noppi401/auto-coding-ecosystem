@@ -1,4 +1,26 @@
-type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+import { appendFile, mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
+import { bus, LogEvent, LogLevel, LogSource } from '../events.js';
+
+const LOG_PATH = '.ecosystem/log/current.jsonl';
+
+export const isPlainMode = (): boolean =>
+  process.argv.includes('--plain') || !process.stdout.isTTY;
+
+async function writeToFile(ev: LogEvent): Promise<void> {
+  try {
+    await mkdir(dirname(LOG_PATH), { recursive: true });
+    await appendFile(LOG_PATH, JSON.stringify(ev) + '\n');
+  } catch {
+    // file logging failure is non-fatal
+  }
+}
+
+function levelToSource(level: LogLevel): LogSource {
+  if (level === 'error') return 'error';
+  if (level === 'warn') return 'warn';
+  return 'info';
+}
 
 class Logger {
   private logLevel: LogLevel;
@@ -8,40 +30,61 @@ class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels: LogLevel[] = ['debug', 'info', 'warn', 'error'];
-    return levels.indexOf(level) >= levels.indexOf(this.logLevel);
+    const order: LogLevel[] = ['debug', 'info', 'warn', 'error'];
+    return order.indexOf(level) >= order.indexOf(this.logLevel);
+  }
+
+  private emit(level: LogLevel, message: string, data?: unknown): void {
+    if (!this.shouldLog(level)) return;
+
+    const ev: LogEvent = {
+      ts: Date.now(),
+      source: levelToSource(level),
+      level,
+      message,
+      data,
+    };
+
+    bus.emit('log', ev);
+    void writeToFile(ev);
+
+    if (isPlainMode()) {
+      const tag = level === 'error' ? '[ERROR]' : level === 'warn' ? '[WARN]' : '[INFO]';
+      const suffix = data !== undefined ? ' ' + JSON.stringify(data) : '';
+      console.log(`${tag} ${message}${suffix}`);
+    }
   }
 
   section(title: string): void {
-    console.log(`\n${'='.repeat(70)}`);
-    console.log(`  ${title}`);
-    console.log(`${'='.repeat(70)}\n`);
-  }
+    const ev: LogEvent = {
+      ts: Date.now(),
+      source: 'info',
+      level: 'info',
+      message: `── ${title} ──`,
+    };
+    bus.emit('log', ev);
+    void writeToFile(ev);
 
-  debug(message: string, data?: any): void {
-    if (this.shouldLog('debug')) {
-      console.log(`[DEBUG] ${message}`, data ? JSON.stringify(data) : '');
+    if (isPlainMode()) {
+      console.log(`\n${'='.repeat(70)}\n  ${title}\n${'='.repeat(70)}\n`);
     }
   }
 
-  info(message: string, data?: any): void {
-    if (this.shouldLog('info')) {
-      console.log(`[INFO] ${message}`, data ? JSON.stringify(data) : '');
-    }
+  debug(message: string, data?: unknown): void {
+    this.emit('debug', message, data);
   }
 
-  warn(message: string, data?: any): void {
-    if (this.shouldLog('warn')) {
-      console.log(`[WARN] ${message}`, data ? JSON.stringify(data) : '');
-    }
+  info(message: string, data?: unknown): void {
+    this.emit('info', message, data);
   }
 
-  error(message: string, err: any): void {
-    if (this.shouldLog('error')) {
-      const errMsg =
-        err instanceof Error ? err.message : JSON.stringify(err);
-      console.log(`[ERROR] ${message}: ${errMsg}`);
-    }
+  warn(message: string, data?: unknown): void {
+    this.emit('warn', message, data);
+  }
+
+  error(message: string, err: unknown): void {
+    const detail = err instanceof Error ? err.message : String(err);
+    this.emit('error', `${message}: ${detail}`);
   }
 }
 

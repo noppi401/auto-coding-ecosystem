@@ -26,4 +26,39 @@ ${repositoryContext ? 'This is a modification to an existing repository. Infer c
     logger.info('RequirementsAgent completed');
     return result;
   }
+
+  async reviseRequirements(
+    currentDoc: string,
+    issues: string[],
+    recommendations: string[],
+    instruction: string,
+    repositoryContext?: string
+  ): Promise<string> {
+    await this.loadSystemPrompt();
+
+    logger.section('RequirementsAgent: 指摘事項に基づき要件定義を修正中');
+
+    const issueLines = issues.map((i) => `- ${i}`).join('\n');
+    const recLines = recommendations.map((r) => `- ${r}`).join('\n');
+
+    const prompt = `## 元のユーザーインストラクション
+${instruction}
+
+${repositoryContext ? `## 既存リポジトリのコンテキスト\n${repositoryContext}\n\n` : ''}## 現在の要件定義書（修正前）
+${currentDoc}
+
+## 検証エージェントによる指摘事項
+${issueLines}
+
+## 改善提案
+${recLines}
+
+上記の指摘事項と改善提案をすべて反映して要件定義書を修正してください。
+修正後の要件定義書のみをMarkdown形式で返してください。`;
+
+    const result = await this.invoke(prompt, 8000);
+
+    logger.info('RequirementsAgent: 修正完了');
+    return result;
+  }
 }

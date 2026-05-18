@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
+import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import {
   LlmUsageLimitError,
   hasClaudeUsageLimitReached,
@@ -11,7 +12,6 @@ import {
   isCodexUsageLimitMessage,
   markClaudeUsageLimitReached,
 } from '../utils/llm-errors.js';
-import readline from 'readline';
 
 interface ClaudeOutput {
   type: string;
@@ -193,8 +193,12 @@ export class BaseAgent {
       tmpdir(),
       `codex-fallback-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
     );
+    const projectInstructions = await loadCodexProjectInstructions();
 
     const prompt = [
+      projectInstructions
+        ? `PROJECT RULES FROM CLAUDE.md:\n${projectInstructions}`
+        : '',
       this.systemPrompt ? `SYSTEM PROMPT:\n${this.systemPrompt}` : '',
       `USER MESSAGE:\n${userMessage}`,
     ].filter(Boolean).join('\n\n');
@@ -455,7 +459,7 @@ export class BaseAgent {
 
     try {
       return JSON.parse(cleaned);
-    } catch (err) {
+    } catch (firstErr) {
       // 3. フォールバック: 二重エスケープ（\" など）のハンドリング
       if (cleaned.includes('\\"')) {
         try {
@@ -464,9 +468,37 @@ export class BaseAgent {
             .replace(/\\\\/g, '\\')
             .replace(/\\n/g, '\n');
           return JSON.parse(unescaped);
-        } catch (innerErr) { /* ignore */ }
+        } catch { /* ignore */ }
       }
-      throw err;
+
+      // 4. フォールバック: バッククォートで囲まれた値をダブルクォートに変換
+      // モデルが "key": `value` のようにテンプレートリテラル構文を使った場合
+      try {
+        const backtickFixed = cleaned.replace(/:\s*`((?:[^`\\]|\\.)*)`/g, (_m, content: string) => {
+          const escaped = content
+            .replace(/\\/g, '\\\\')
+            .replace(/"/g, '\\"')
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r');
+          return `: "${escaped}"`;
+        });
+        if (backtickFixed !== cleaned) return JSON.parse(backtickFixed);
+      } catch { /* ignore */ }
+
+      // 5. フォールバック: JSON文字列内のリテラル改行をエスケープ
+      // モデルが文字列フィールド内で実際の改行を使った場合（Unterminated string エラー）
+      try {
+        const newlineFixed = cleaned.replace(/"((?:[^"\\]|\\.)*)"/g, (_m, inner: string) => {
+          const escaped = inner
+            .replace(/\n/g, '\\n')
+            .replace(/\r/g, '\\r')
+            .replace(/\t/g, '\\t');
+          return `"${escaped}"`;
+        });
+        if (newlineFixed !== cleaned) return JSON.parse(newlineFixed);
+      } catch { /* ignore */ }
+
+      throw firstErr;
     }
   }
 }

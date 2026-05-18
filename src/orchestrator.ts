@@ -1,8 +1,12 @@
+import { promises as fs } from 'fs';
+import { dirname } from 'path';
 import { StateManager } from './state/manager.js';
 import { ProjectState, ReviewComment, ReviewResult, Task } from './state/types.js';
 import { logger } from './utils/logger.js';
 import { RequirementsAgent } from './agents/requirements-agent.js';
+import { RequirementsValidationAgent } from './agents/requirements-validation-agent.js';
 import { DesignAgent } from './agents/design-agent.js';
+import { DesignValidationAgent } from './agents/design-validation-agent.js';
 import { TaskDecompAgent } from './agents/task-decomp-agent.js';
 import { CodingAgent } from './agents/coding-agent.js';
 import { CodexAgent } from './agents/codex-agent.js';
@@ -10,6 +14,9 @@ import { ReviewAgent } from './agents/review-agent.js';
 import { FixAgent } from './agents/fix-agent.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import { isLlmUsageLimitError } from './utils/llm-errors.js';
+
+const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
+const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '3');
 
 export class Orchestrator {
   private stateManager: StateManager;
@@ -71,10 +78,11 @@ export class Orchestrator {
       logger.info('Using existing repository for modification', `${owner}/${repo}`);
     }
 
-    // Phase 1a: Requirements
-    logger.section('Step 1/3: Requirements Generation');
+    // Phase 1a+1b: Requirements Generation + Validation Loop
+    logger.section('Step 1-2/5: Requirements Generation + Validation');
     const reqAgent = new RequirementsAgent();
-    const requirementsDoc = await reqAgent.generateRequirements(
+    const requirementsDoc = await this._requirementsWithValidation(
+      reqAgent,
       instruction,
       repositoryContext
     );
@@ -85,10 +93,14 @@ export class Orchestrator {
     currentState.agentHistories.requirements = reqAgent.getHistory();
     await this.stateManager.save(currentState);
 
-    // Phase 1b: Design
-    logger.section('Step 2/3: Design Generation');
+    // Phase 1c+1d: Design Generation + Validation Loop
+    logger.section('Step 3-4/5: Design Generation + Validation');
     const designAgent = new DesignAgent();
-    const designDoc = await designAgent.generateDesign(requirementsDoc, repositoryContext);
+    const designDoc = await this._designWithValidation(
+      designAgent,
+      requirementsDoc,
+      repositoryContext
+    );
 
     await this.stateManager.updateDesignDoc(designDoc);
     currentState = await this.stateManager.load();
@@ -96,15 +108,15 @@ export class Orchestrator {
     currentState.agentHistories.design = designAgent.getHistory();
     await this.stateManager.save(currentState);
 
-    // Phase 1c: Task Decomposition
-    logger.section('Step 3/3: Task Decomposition');
+    // Phase 1e: Task Decomposition
+    logger.section('Step 5/5: Task Decomposition');
     const taskAgent = new TaskDecompAgent();
     const tasks = await taskAgent.decomposeTask(
       requirementsDoc,
       designDoc
     );
 
-    logger.section('Step 3/3: GitHub Issue Registration');
+    logger.section('Step 5/5: GitHub Issue Registration');
     await this._createIssuesForTasks(tasks, owner, repo);
 
     await this.stateManager.setTasks(tasks);
@@ -145,6 +157,7 @@ export class Orchestrator {
       }
 
       const resumableStatuses = new Set<Task['status']>([
+        'coding',
         'pr_open',
         'in_review',
         'fixing',
@@ -223,6 +236,7 @@ export class Orchestrator {
     if (
       task.prNumber &&
       (retryFailed ||
+        task.status === 'coding' ||
         task.status === 'pr_open' ||
         task.status === 'in_review' ||
         task.status === 'fixing' ||
@@ -306,21 +320,25 @@ export class Orchestrator {
       prBody
     );
 
-    if (task.issueNumber) {
-      await githubAgent.commentIssue(
-        state.githubOwner,
-        state.githubRepo,
-        task.issueNumber,
-        `Implementation PR opened: #${prInfo.prNumber}\n\n${prInfo.prUrl}`
-      );
-    }
-
     await this.stateManager.updateTask(task.id, {
       status: 'pr_open',
       prNumber: prInfo.prNumber,
       prUrl: prInfo.prUrl,
       errorMessage: undefined,
     });
+
+    if (task.issueNumber) {
+      try {
+        await githubAgent.commentIssue(
+          state.githubOwner,
+          state.githubRepo,
+          task.issueNumber,
+          `Implementation PR opened: #${prInfo.prNumber}\n\n${prInfo.prUrl}`
+        );
+      } catch (err) {
+        logger.warn('Failed to comment issue with PR link; continuing', String(err));
+      }
+    }
 
     // Review loop
     const reviewAgent = new ReviewAgent();
@@ -569,6 +587,149 @@ export class Orchestrator {
     return reviewResult.comments.filter(
       (comment) => comment.severity === 'suggestion'
     );
+  }
+
+  private async _requirementsWithValidation(
+    reqAgent: RequirementsAgent,
+    instruction: string,
+    repositoryContext?: string
+  ): Promise<string> {
+    const validationAgent = new RequirementsValidationAgent();
+    let doc = await reqAgent.generateRequirements(instruction, repositoryContext);
+
+    for (let iter = 1; iter <= VALIDATION_MAX_ITERATIONS; iter++) {
+      await this._saveMarkdown('.ecosystem/requirements.md', doc);
+
+      const validation = await validationAgent.validate(doc, instruction);
+      const reportMd = this._buildValidationMarkdown(
+        `要件妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`,
+        validation
+      );
+      await this._saveMarkdown('.ecosystem/requirements-validation.md', reportMd);
+
+      logger.info(
+        `要件妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`,
+        validation.summary
+      );
+
+      if (validation.score >= VALIDATION_PASS_THRESHOLD) {
+        logger.info(`要件定義が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`);
+        break;
+      }
+
+      if (iter === VALIDATION_MAX_ITERATIONS) {
+        logger.warn(
+          `最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`,
+          '現在の要件定義でフェーズを続行します'
+        );
+        break;
+      }
+
+      logger.warn(
+        `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 要件定義を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
+        `問題点: ${validation.issues.join(' / ')}`
+      );
+      doc = await reqAgent.reviseRequirements(
+        doc,
+        validation.issues,
+        validation.recommendations,
+        instruction,
+        repositoryContext
+      );
+    }
+
+    return doc;
+  }
+
+  private async _designWithValidation(
+    designAgent: DesignAgent,
+    requirementsDoc: string,
+    repositoryContext?: string
+  ): Promise<string> {
+    const validationAgent = new DesignValidationAgent();
+    let doc = await designAgent.generateDesign(requirementsDoc, repositoryContext);
+
+    for (let iter = 1; iter <= VALIDATION_MAX_ITERATIONS; iter++) {
+      await this._saveMarkdown('.ecosystem/design.md', doc);
+
+      const validation = await validationAgent.validate(doc, requirementsDoc);
+      const reportMd = this._buildValidationMarkdown(
+        `設計書妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`,
+        validation
+      );
+      await this._saveMarkdown('.ecosystem/design-validation.md', reportMd);
+
+      logger.info(
+        `設計書妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`,
+        validation.summary
+      );
+
+      if (validation.score >= VALIDATION_PASS_THRESHOLD) {
+        logger.info(`設計書が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`);
+        break;
+      }
+
+      if (iter === VALIDATION_MAX_ITERATIONS) {
+        logger.warn(
+          `最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`,
+          '現在の設計書でフェーズを続行します'
+        );
+        break;
+      }
+
+      logger.warn(
+        `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 設計書を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
+        `問題点: ${validation.issues.join(' / ')}`
+      );
+      doc = await designAgent.reviseDesign(
+        doc,
+        validation.issues,
+        validation.recommendations,
+        requirementsDoc,
+        repositoryContext
+      );
+    }
+
+    return doc;
+  }
+
+  private async _saveMarkdown(relativePath: string, content: string): Promise<void> {
+    try {
+      const absPath = `${process.cwd()}/${relativePath}`;
+      await fs.mkdir(dirname(absPath), { recursive: true });
+      await fs.writeFile(absPath, content, 'utf-8');
+      logger.info(`Markdown保存: ${relativePath}`);
+    } catch (err) {
+      logger.warn(`Markdown保存失敗: ${relativePath}`, String(err));
+    }
+  }
+
+  private _buildValidationMarkdown(title: string, result: { score: number; grade: string; summary: string; issues: string[]; recommendations: string[]; categories: Record<string, { score: number; comment: string }> }): string {
+    const categoryLines = Object.entries(result.categories)
+      .map(([key, val]) => `| ${key} | ${val.score} | ${val.comment} |`)
+      .join('\n');
+
+    const issueLines = result.issues.map((i) => `- ${i}`).join('\n') || '- なし';
+    const recLines = result.recommendations.map((r) => `- ${r}`).join('\n') || '- なし';
+
+    return `# ${title}
+
+## 総合スコア: ${result.score}点 / 100点（グレード: ${result.grade}）
+
+## 総評
+${result.summary}
+
+## 評価カテゴリ別スコア
+| カテゴリ | スコア | コメント |
+|---|---|---|
+${categoryLines}
+
+## 問題点
+${issueLines}
+
+## 改善提案
+${recLines}
+`;
   }
 
   private async _runCodexReviewIfEnabled(

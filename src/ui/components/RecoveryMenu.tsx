@@ -1,0 +1,62 @@
+import React from 'react';
+import { Box, Text } from 'ink';
+import { theme } from '../theme.js';
+import type { Task } from '../../state/types.js';
+
+interface Action {
+  key: string;
+  label: string;
+  hint: string;
+  primary?: boolean;
+}
+
+interface Props {
+  task: Task;
+  onRetry?: () => void;
+  onRetryWithOpus?: () => void;
+  onSkip?: () => void;
+  onOpenPr?: () => void;
+}
+
+export const RecoveryMenu: React.FC<Props> = ({
+  task,
+  onRetry,
+  onRetryWithOpus,
+  onSkip,
+  onOpenPr,
+}) => {
+  const actions: Action[] = [
+    { key: 'r', label: 'Retry (+3 iterations)',      hint: '同じモデルで再試行',      primary: true },
+    { key: 'R', label: 'Retry with opus-4',          hint: 'モデル昇格して再試行'                   },
+    { key: 's', label: 'Skip and continue queue',    hint: '次のタスクへ'                           },
+    ...(task.prNumber ? [{ key: 'o', label: `Open PR #${task.prNumber} in browser`, hint: '手動対応' }] : []),
+  ];
+
+  return (
+    <Box flexDirection="column" paddingX={1} marginTop={1}>
+      <Text color={theme.fgDim} bold>RECOVERY OPTIONS</Text>
+      <Box flexDirection="column" marginTop={0}>
+        {actions.map((a) => (
+          <Box key={a.key} gap={2}>
+            <Box
+              paddingX={1}
+              borderStyle="single"
+              borderColor={a.primary ? theme.accent : theme.border}
+            >
+              <Text color={a.primary ? theme.accent : theme.fg} bold={a.primary}>{a.key}</Text>
+            </Box>
+            <Text color={a.primary ? theme.fg : theme.fgMute}>{a.label}</Text>
+            <Text color={theme.fgFaint}>{a.hint}</Text>
+          </Box>
+        ))}
+      </Box>
+      {task.errorMessage && (
+        <Box marginTop={1} paddingLeft={1} borderLeft borderStyle="single" borderColor={theme.danger}>
+          <Text color={theme.danger} wrap="wrap">
+            {task.errorMessage.slice(0, 300)}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+};

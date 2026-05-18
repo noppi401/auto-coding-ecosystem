@@ -81,9 +81,8 @@ Use camelCase keys exactly as shown:
 
   parseCodeFromResponse(response: string): CodeOutput {
     try {
-      const jsonMatch = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-      const cleanedResponse = jsonMatch ? jsonMatch[1] : response;
-      return this.normalizeCodeOutput(JSON.parse(cleanedResponse));
+      const data = this.robustJsonParse(response);
+      return this.normalizeCodeOutput(data);
     } catch (err) {
       logger.error('Failed to parse code output', err);
       throw err;

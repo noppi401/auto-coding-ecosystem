@@ -42,14 +42,28 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
   "summary": "review summary"
 }`;
 
-    const result = await this.invoke(prompt, 8000);
-    const reviewResult = this.parseReviewFromResponse(result);
+    let result = await this.invoke(prompt, 8000);
+    let reviewResult: ReviewResult;
+    try {
+      reviewResult = this.parseReviewOrThrow(result);
+    } catch (err) {
+      logger.warn('ReviewAgent returned invalid JSON; retrying with stricter output instructions', String(err));
+      result = await this.invoke(
+        [
+          'Your previous response was not valid JSON.',
+          'Return ONLY one valid JSON object.',
+          'Use only plain ASCII characters in string values — no backticks, no template literals, no raw newlines.',
+          prompt,
+        ].join('\n\n'),
+        8000
+      );
+      reviewResult = this.parseReviewFromResponse(result);
+    }
 
     logger.info('ReviewAgent completed', {
       approved: reviewResult.approved,
       commentCount: reviewResult.comments.length,
     });
-
     return reviewResult;
   }
 
@@ -79,34 +93,36 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
   "summary": "review summary"
 }`;
 
-    const result = await this.invoke(prompt, 8000);
-    const reviewResult = this.parseReviewFromResponse(result);
+    let result = await this.invoke(prompt, 8000);
+    let reviewResult: ReviewResult;
+    try {
+      reviewResult = this.parseReviewOrThrow(result);
+    } catch (err) {
+      logger.warn('ReviewAgent returned invalid JSON; retrying with stricter output instructions', String(err));
+      result = await this.invoke(
+        [
+          'Your previous response was not valid JSON.',
+          'Return ONLY one valid JSON object.',
+          'Use only plain ASCII characters in string values — no backticks, no template literals, no raw newlines.',
+          prompt,
+        ].join('\n\n'),
+        8000
+      );
+      reviewResult = this.parseReviewFromResponse(result);
+    }
 
-    logger.info('ReviewAgent re-review completed', {
-      approved: reviewResult.approved,
-    });
-
+    logger.info('ReviewAgent re-review completed', { approved: reviewResult.approved });
     return reviewResult;
+  }
+
+  private parseReviewOrThrow(response: string): ReviewResult {
+    const data = this.robustJsonParse(response);
+    return this.normalizeReview(data);
   }
 
   parseReviewFromResponse(response: string): ReviewResult {
     try {
-      const data = this.robustJsonParse(response);
-
-      const comments: ReviewComment[] = (
-        data.comments || []
-      ).map((c: any) => ({
-        path: c.path,
-        line: c.line,
-        body: c.body,
-        severity: c.severity,
-      }));
-
-      return {
-        approved: data.approved || false,
-        comments,
-        summary: data.summary || '',
-      };
+      return this.parseReviewOrThrow(response);
     } catch (err) {
       logger.error('Failed to parse review output', err);
       return {
@@ -125,5 +141,19 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
         summary: 'Review output was not valid JSON.',
       };
     }
+  }
+
+  private normalizeReview(data: any): ReviewResult {
+    const comments: ReviewComment[] = (data.comments || []).map((c: any) => ({
+      path: c.path,
+      line: c.line,
+      body: c.body,
+      severity: c.severity,
+    }));
+    return {
+      approved: data.approved || false,
+      comments,
+      summary: data.summary || '',
+    };
   }
 }

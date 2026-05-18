@@ -8,6 +8,7 @@ import {
   ProjectPhase,
 } from './types.js';
 import { logger } from '../utils/logger.js';
+import { bus } from '../events.js';
 
 export class StateManager {
   private statePath: string;
@@ -52,6 +53,7 @@ export class StateManager {
     };
 
     await this.save(state);
+    bus.emit('state:init', { state });
     return state;
   }
 
@@ -74,7 +76,6 @@ export class StateManager {
       const dir = dirname(this.statePath);
       await fs.mkdir(dir, { recursive: true });
 
-      // Atomic write: temp file -> rename
       const tmpPath = `${this.statePath}.tmp`;
       await fs.writeFile(tmpPath, JSON.stringify(state, null, 2));
       await fs.rename(tmpPath, this.statePath);
@@ -90,6 +91,7 @@ export class StateManager {
     state.requirementsDoc = doc;
     state.phase = 'design';
     await this.save(state);
+    bus.emit('phase:change', { phase: 'design' });
   }
 
   async updateDesignDoc(doc: string): Promise<void> {
@@ -98,6 +100,7 @@ export class StateManager {
     state.designDoc = doc;
     state.phase = 'task_decomp';
     await this.save(state);
+    bus.emit('phase:change', { phase: 'task_decomp' });
   }
 
   async setTasks(tasks: Task[]): Promise<void> {
@@ -106,6 +109,8 @@ export class StateManager {
     state.tasks = tasks;
     state.phase = 'awaiting_approval';
     await this.save(state);
+    bus.emit('tasks:set', { tasks });
+    bus.emit('phase:change', { phase: 'awaiting_approval' });
   }
 
   async updateTask(
@@ -120,6 +125,7 @@ export class StateManager {
 
     Object.assign(task, updates, { updatedAt: new Date().toISOString() });
     await this.save(state);
+    bus.emit('task:update', { taskId, changes: updates });
   }
 
   async setCurrentTaskIndex(index: number): Promise<void> {
@@ -127,6 +133,7 @@ export class StateManager {
     if (!state) throw new Error('No project state found');
     state.currentTaskIndex = index;
     await this.save(state);
+    bus.emit('currentTask:change', { index });
   }
 
   async markCompleted(): Promise<void> {
@@ -134,6 +141,7 @@ export class StateManager {
     if (!state) throw new Error('No project state found');
     state.phase = 'completed';
     await this.save(state);
+    bus.emit('phase:change', { phase: 'completed' });
   }
 
   async updateAgentHistory(

@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
+    "dev:window": "start \"\" \"%LOCALAPPDATA%\\Microsoft\\WindowsApps\\wt.exe\" -d . cmd /k \"npm run dev\"",
     "start": "node dist/index.js",
     "clean": "rm -rf dist"
   },
@@ -20,11 +21,16 @@
   "author": "noppi401",
   "license": "MIT",
   "dependencies": {
-    "dotenv": "^16.4.5"
+    "@clack/prompts": "^1.4.0",
+    "dotenv": "^16.4.5",
+    "ink": "^7.0.3",
+    "ink-spinner": "^5.0.0",
+    "react": "^19.2.6"
   },
   "devDependencies": {
     "@types/node": "^20.14.10",
-    "typescript": "^5.5.4",
-    "tsx": "^4.17.0"
+    "@types/react": "^19.2.14",
+    "tsx": "^4.17.0",
+    "typescript": "^5.5.4"
   }
 }
