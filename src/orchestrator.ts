@@ -222,6 +222,10 @@ export class Orchestrator {
       return;
     }
 
+    if (latestState) {
+      await this._verifyContextWorktreeSynced(latestState);
+    }
+
     await this.stateManager.markCompleted();
     logger.section('PHASE 2 COMPLETE - ALL TASKS DONE');
   }
@@ -445,6 +449,15 @@ export class Orchestrator {
           prNumber
         );
 
+        const syncInfo = await githubAgent.syncContextWorktree(
+          state.githubOwner,
+          state.githubRepo
+        );
+        logger.info(
+          'Context worktree synchronized after merge',
+          `${syncInfo.branch}@${syncInfo.commit.slice(0, 12)} ${syncInfo.path}`
+        );
+
         if (task.issueNumber) {
           await githubAgent.closeIssue(
             state.githubOwner,
@@ -543,6 +556,17 @@ export class Orchestrator {
         );
       }
     }
+  }
+
+  private async _verifyContextWorktreeSynced(state: ProjectState): Promise<void> {
+    const syncInfo = await this.githubAgent.syncContextWorktree(
+      state.githubOwner,
+      state.githubRepo
+    );
+    logger.info(
+      'Final context worktree verification passed',
+      `${syncInfo.branch}@${syncInfo.commit.slice(0, 12)} ${syncInfo.path}`
+    );
   }
 
   private getBlockingComments(reviewResult: ReviewResult): ReviewComment[] {

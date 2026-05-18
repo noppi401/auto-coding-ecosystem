@@ -17,6 +17,12 @@ interface IssueInfo {
   issueUrl: string;
 }
 
+interface WorktreeSyncInfo {
+  path: string;
+  branch: string;
+  commit: string;
+}
+
 interface FileOp {
   path: string;
   content: string;
@@ -457,6 +463,49 @@ export class GitHubAgent {
       '--squash',
       '--delete-branch',
     ]);
+  }
+
+  async syncContextWorktree(owner: string, repo: string): Promise<WorktreeSyncInfo> {
+    const baseBranch = process.env.BASE_BRANCH || 'main';
+    const worktree = this.getWorktreePath(owner, repo, '__context');
+
+    await fs.mkdir(dirname(worktree), { recursive: true });
+
+    if (!(await this.pathExists(join(worktree, '.git')))) {
+      await this.cloneRepo(owner, repo, worktree);
+    }
+
+    const statusBeforeSync = await this.exec('git', ['status', '--porcelain'], worktree);
+    if (statusBeforeSync.trim()) {
+      throw new Error(
+        `Context worktree has uncommitted changes and cannot be synchronized safely: ${worktree}`
+      );
+    }
+
+    await this.exec('git', ['fetch', 'origin', baseBranch], worktree);
+    await this.exec('git', ['checkout', '-B', baseBranch, `origin/${baseBranch}`], worktree);
+    await this.exec('git', ['reset', '--hard', `origin/${baseBranch}`], worktree);
+
+    const statusAfterSync = await this.exec('git', ['status', '--porcelain'], worktree);
+    if (statusAfterSync.trim()) {
+      throw new Error(
+        `Context worktree is dirty after synchronization: ${worktree}`
+      );
+    }
+
+    const localCommit = (await this.exec('git', ['rev-parse', 'HEAD'], worktree)).trim();
+    const remoteCommit = (await this.exec('git', ['rev-parse', `origin/${baseBranch}`], worktree)).trim();
+    if (localCommit !== remoteCommit) {
+      throw new Error(
+        `Context worktree is not at origin/${baseBranch}: ${localCommit} != ${remoteCommit}`
+      );
+    }
+
+    return {
+      path: worktree,
+      branch: baseBranch,
+      commit: localCommit,
+    };
   }
 
   private getWorktreePath(owner: string, repo: string, branch: string): string {
