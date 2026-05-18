@@ -185,6 +185,26 @@ Phase 2 では PR マージ直後と完了直前に、この `__context` worktre
 
 `__context` に未コミット変更がある場合は、安全のため自動同期を止めます。手元の変更を退避またはコミットしてから再実行してください。
 
+また、`~/Documents/Products/<repo>` が存在する場合は、そこも確認用 checkout として同じタイミングで同期します。今回の TRPG ターミナルでは次が対象です。
+
+```powershell
+C:\path\to\Products\<repo>
+```
+
+確認用 checkout を明示したい場合は、`.env` などで次を設定できます。
+
+```env
+ECOSYSTEM_PRODUCT_WORKTREE=C:\path\to\Products\<repo>
+```
+
+複数リポジトリで `Products` のルートだけ変えたい場合:
+
+```env
+ECOSYSTEM_PRODUCT_ROOT=C:\path\to\Products
+```
+
+Products 側に未コミット変更がある場合も、安全のため同期を止めます。
+
 依存関係の導入:
 
 ```powershell

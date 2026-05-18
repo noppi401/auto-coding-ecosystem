@@ -457,6 +457,16 @@ export class Orchestrator {
           'Context worktree synchronized after merge',
           `${syncInfo.branch}@${syncInfo.commit.slice(0, 12)} ${syncInfo.path}`
         );
+        const productSyncInfo = await githubAgent.syncProductWorktree(
+          state.githubOwner,
+          state.githubRepo
+        );
+        if (productSyncInfo) {
+          logger.info(
+            'Product worktree synchronized after merge',
+            `${productSyncInfo.branch}@${productSyncInfo.commit.slice(0, 12)} ${productSyncInfo.path}`
+          );
+        }
 
         if (task.issueNumber) {
           await githubAgent.closeIssue(
@@ -567,6 +577,16 @@ export class Orchestrator {
       'Final context worktree verification passed',
       `${syncInfo.branch}@${syncInfo.commit.slice(0, 12)} ${syncInfo.path}`
     );
+    const productSyncInfo = await this.githubAgent.syncProductWorktree(
+      state.githubOwner,
+      state.githubRepo
+    );
+    if (productSyncInfo) {
+      logger.info(
+        'Final product worktree verification passed',
+        `${productSyncInfo.branch}@${productSyncInfo.commit.slice(0, 12)} ${productSyncInfo.path}`
+      );
+    }
   }
 
   private getBlockingComments(reviewResult: ReviewResult): ReviewComment[] {

@@ -1,7 +1,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { promises as fs } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
+import { homedir } from 'os';
 import { ReviewComment } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 
@@ -468,6 +469,34 @@ export class GitHubAgent {
   async syncContextWorktree(owner: string, repo: string): Promise<WorktreeSyncInfo> {
     const baseBranch = process.env.BASE_BRANCH || 'main';
     const worktree = this.getWorktreePath(owner, repo, '__context');
+    return this.syncExistingCheckout(owner, repo, worktree, baseBranch);
+  }
+
+  async syncProductWorktree(owner: string, repo: string): Promise<WorktreeSyncInfo | null> {
+    const baseBranch = process.env.BASE_BRANCH || 'main';
+    const explicitPath = process.env.ECOSYSTEM_PRODUCT_WORKTREE;
+    const productRoot = process.env.ECOSYSTEM_PRODUCT_ROOT || join(homedir(), 'Documents', 'Products');
+    const checkoutPath = explicitPath || join(productRoot, repo);
+    const strict = Boolean(explicitPath);
+
+    if (!(await this.pathExists(checkoutPath))) {
+      if (strict) {
+        throw new Error(`Configured product worktree does not exist: ${checkoutPath}`);
+      }
+      logger.info('Product worktree not found; skipping synchronization', checkoutPath);
+      return null;
+    }
+
+    return this.syncExistingCheckout(owner, repo, checkoutPath, baseBranch);
+  }
+
+  private async syncExistingCheckout(
+    owner: string,
+    repo: string,
+    checkoutPath: string,
+    baseBranch: string
+  ): Promise<WorktreeSyncInfo> {
+    const worktree = resolve(checkoutPath);
 
     await fs.mkdir(dirname(worktree), { recursive: true });
 
@@ -478,7 +507,7 @@ export class GitHubAgent {
     const statusBeforeSync = await this.exec('git', ['status', '--porcelain'], worktree);
     if (statusBeforeSync.trim()) {
       throw new Error(
-        `Context worktree has uncommitted changes and cannot be synchronized safely: ${worktree}`
+        `Worktree has uncommitted changes and cannot be synchronized safely: ${worktree}`
       );
     }
 
@@ -489,7 +518,7 @@ export class GitHubAgent {
     const statusAfterSync = await this.exec('git', ['status', '--porcelain'], worktree);
     if (statusAfterSync.trim()) {
       throw new Error(
-        `Context worktree is dirty after synchronization: ${worktree}`
+        `Worktree is dirty after synchronization: ${worktree}`
       );
     }
 
@@ -497,7 +526,7 @@ export class GitHubAgent {
     const remoteCommit = (await this.exec('git', ['rev-parse', `origin/${baseBranch}`], worktree)).trim();
     if (localCommit !== remoteCommit) {
       throw new Error(
-        `Context worktree is not at origin/${baseBranch}: ${localCommit} != ${remoteCommit}`
+        `Worktree is not at origin/${baseBranch}: ${localCommit} != ${remoteCommit}`
       );
     }
 
