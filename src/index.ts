@@ -319,6 +319,9 @@ async function uiEntry(args: string[]): Promise<void> {
   const wizard = await showRequestWizard();
   process.env.PLANNING_CLAUDE_MODEL = wizard.planningModel;
   process.env.IMPLEMENTATION_CLAUDE_MODEL = wizard.implModel;
+  process.env.PLANNING_LLM_PROVIDER = wizard.primaryProvider;
+  process.env.IMPLEMENTATION_LLM_PROVIDER = wizard.primaryProvider;
+  process.env.FALLBACK_LLM_PROVIDER = wizard.fallbackProvider;
 
   await ensureGhAuth();
   const orchestrator = new Orchestrator();

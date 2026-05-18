@@ -8,14 +8,31 @@ export class LlmUsageLimitError extends Error {
   }
 }
 
-let claudeUsageLimitReached = false;
+const providerLimitReached: Record<string, boolean> = {};
+
+export function markProviderLimitReached(provider: string): void {
+  providerLimitReached[provider] = true;
+}
+
+export function hasProviderLimitReached(provider: string): boolean {
+  return providerLimitReached[provider] === true;
+}
 
 export function markClaudeUsageLimitReached(): void {
-  claudeUsageLimitReached = true;
+  markProviderLimitReached('claude');
 }
 
 export function hasClaudeUsageLimitReached(): boolean {
-  return claudeUsageLimitReached;
+  return hasProviderLimitReached('claude');
+}
+
+export function isGeminiUsageLimitMessage(value: unknown): boolean {
+  const msg = String(value);
+  return (
+    msg.includes('TerminalQuotaError') ||
+    msg.includes('QUOTA_EXHAUSTED') ||
+    msg.includes('exhausted your capacity')
+  );
 }
 
 export function isClaudeUsageLimitMessage(value: unknown): boolean {

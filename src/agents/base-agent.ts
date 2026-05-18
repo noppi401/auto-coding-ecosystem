@@ -7,10 +7,11 @@ import { resolveCodexBin } from '../utils/codex-bin.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import {
   LlmUsageLimitError,
-  hasClaudeUsageLimitReached,
   isClaudeUsageLimitMessage,
   isCodexUsageLimitMessage,
-  markClaudeUsageLimitReached,
+  isGeminiUsageLimitMessage,
+  hasProviderLimitReached,
+  markProviderLimitReached,
 } from '../utils/llm-errors.js';
 
 interface ClaudeOutput {
@@ -84,62 +85,81 @@ export class BaseAgent {
         ? (process.env.IMPLEMENTATION_LLM_PROVIDER || 'claude')
         : (process.env.PLANNING_LLM_PROVIDER || 'claude')
     ).toLowerCase() as LlmProvider;
-    const localEnabled = Boolean(this.getLocalLlmUrl() && this.getLocalLlmModel());
+    const fallbackProvider = (
+      process.env.FALLBACK_LLM_PROVIDER || 'codex'
+    ).toLowerCase() as LlmProvider;
 
     if (!['auto', 'claude', 'codex', 'local', 'gemini'].includes(provider)) {
       throw new Error(`Unsupported LLM provider: ${provider}`);
     }
 
-    if (provider === 'codex' || (provider === 'claude' && hasClaudeUsageLimitReached())) {
-      logger.info(`${this.agentName} invoking Codex...`, {
-        route,
-        model: process.env.CODEX_MODEL || 'default',
-        reason: provider === 'claude' ? 'Claude usage limit already reached' : 'configured provider',
-      });
-      return await this.invokeCodex(userMessage);
+    // Skip to fallback directly if primary already hit limit this session
+    if (hasProviderLimitReached(provider) && fallbackProvider !== provider) {
+      logger.info(
+        `${this.agentName} ${provider} limit reached, invoking ${fallbackProvider} directly`,
+        { route }
+      );
+      return await this.invokeByProvider(fallbackProvider, userMessage, maxTokens);
     }
 
-    // Handle Gemini CLI mode (Subscription-based, no API Key needed)
-    if (provider === 'gemini') {
-      return await this.invokeGemini(userMessage);
-    }
-
-    if (provider === 'local') {
-      if (!localEnabled) {
-        throw new Error(
-          'LOCAL_LLM_URL and LOCAL_LLM_MODEL are required when provider is local'
+    try {
+      return await this.invokeByProvider(provider, userMessage, maxTokens);
+    } catch (err) {
+      if (this.isProviderUsageLimitError(err, provider)) {
+        markProviderLimitReached(provider);
+        if (process.env.AI_TOKEN_MODE === provider) {
+          throw new LlmUsageLimitError(provider as 'claude' | 'codex' | 'gemini', String(err));
+        }
+        if (fallbackProvider === provider) {
+          throw new LlmUsageLimitError(provider as 'claude' | 'codex' | 'gemini', String(err));
+        }
+        logger.warn(
+          `${this.agentName} ${provider} usage limit reached, falling back to ${fallbackProvider}`,
+          String(err)
         );
+        return await this.invokeByProvider(fallbackProvider, userMessage, maxTokens);
       }
+      throw err;
+    }
+  }
 
-      try {
+  private async invokeByProvider(
+    provider: LlmProvider,
+    userMessage: string,
+    maxTokens: number
+  ): Promise<string> {
+    const localEnabled = Boolean(this.getLocalLlmUrl() && this.getLocalLlmModel());
+    switch (provider) {
+      case 'codex':
+        logger.info(`${this.agentName} invoking Codex...`, {
+          model: process.env.CODEX_MODEL || 'default',
+        });
+        return await this.invokeCodex(userMessage);
+      case 'gemini':
+        return await this.invokeGemini(userMessage);
+      case 'local':
+        if (!localEnabled) {
+          throw new Error(
+            'LOCAL_LLM_URL and LOCAL_LLM_MODEL are required when provider is local'
+          );
+        }
         logger.info(`${this.agentName} invoking local LLM...`, {
           model: process.env.LOCAL_LLM_MODEL,
         });
         return await this.invokeLocal(userMessage, maxTokens);
-      } catch (err) {
-        if (provider === 'local') {
-          logger.error(`${this.agentName} local LLM failed`, err);
-          throw err;
-        }
-        throw err;
-      }
+      case 'auto':
+      case 'claude':
+      default:
+        return await this.invokeClaude(userMessage);
     }
+  }
 
-    try {
-      return await this.invokeClaude(userMessage);
-    } catch (err) {
-      if (this.isClaudeUsageLimitError(err)) {
-        markClaudeUsageLimitReached();
-        if (process.env.AI_TOKEN_MODE === 'claude') {
-          throw new LlmUsageLimitError('claude', String(err));
-        }
-        logger.warn(
-          `${this.agentName} Claude usage limit reached, falling back to Codex`,
-          String(err)
-        );
-        return await this.invokeCodex(userMessage);
-      }
-      throw err;
+  private isProviderUsageLimitError(err: unknown, provider: LlmProvider): boolean {
+    if (err instanceof LlmUsageLimitError) return true;
+    switch (provider) {
+      case 'codex':  return isCodexUsageLimitMessage(err);
+      case 'gemini': return isGeminiUsageLimitMessage(err);
+      default:       return isClaudeUsageLimitMessage(err);
     }
   }
 
@@ -432,10 +452,6 @@ export class BaseAgent {
 
   private getLocalLlmModel(): string | undefined {
     return process.env.LOCAL_LLM_MODEL;
-  }
-
-  private isClaudeUsageLimitError(err: unknown): boolean {
-    return isClaudeUsageLimitMessage(err);
   }
 
   /**
