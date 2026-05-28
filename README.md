@@ -64,10 +64,11 @@ npm run dev -- modify --target-repo owner/repo --instruction-file ./change-reque
 npm run dev -- modify --target-repo existing-app --instruction-file ./change-request.txt --auto
 ```
 
-対話モードの `Run from Issue` では、open Issue の一覧から実行対象を選べます。既存 Issue を選んだ場合は追加のタスク分解 Issue を作らず、その Issue 自体を実行タスクとして扱います。CLI で Issue を直接指定する場合:
+対話モードの `Run from Issue` では、open Issue の一覧から複数選択または全件選択で実行対象を選べます。既存 Issue を選んだ場合は追加のタスク分解 Issue を作らず、各 Issue 自体を実行タスクとして扱います。CLI で Issue を直接指定する場合:
 
 ```bash
 npm run dev -- modify --target-repo owner/repo --issue-number 123 --auto
+npm run dev -- modify --target-repo owner/repo --issue-number 123,124 --auto
 ```
 
 ### Phase 2 だけ実行する
@@ -174,6 +175,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `REPO_CONTEXT_MAX_CHARS` | `40000` | 既存 repo 読み取り時の最大文字数 |
 | `REPO_CONTEXT_FILE_MAX_CHARS` | `4000` | 1 ファイルあたりの最大文字数 |
 | `ISSUE_SELECT_LIMIT` | `30` | 対話モードで一覧表示する open Issue の最大件数 |
+| `ISSUE_RUN_ALL_LIMIT` | `1000` | `Run from Issue` の全件実行で取得する open Issue の最大件数 |
 | `PHASE2_LOOP_MAX_ATTEMPTS` | `100` | `--loop-until-limit` の最大試行回数 |
 | `LOG_LEVEL` | `info` | ログレベル |
 

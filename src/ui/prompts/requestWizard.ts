@@ -1,6 +1,7 @@
 import {
   text,
   select,
+  multiselect,
   isCancel,
   outro,
   log as clackLog,
@@ -13,7 +14,7 @@ import { homedir } from 'os';
 import type { CodexIntelligence } from '../../utils/codex-options.js';
 import type { SourceIssue } from '../../state/types.js';
 import { GitHubAgent } from '../../agents/github-agent.js';
-import { buildIssueInstruction } from '../../utils/issue-instruction.js';
+import { buildIssuesInstruction } from '../../utils/issue-instruction.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
 export type ProjectMode = 'new' | 'modify';
@@ -34,6 +35,7 @@ export interface WizardResult {
   codexModel?: string;
   codexIntelligence?: CodexIntelligenceChoice;
   sourceIssue?: SourceIssue;
+  sourceIssues?: SourceIssue[];
 }
 
 export interface RequestWizardOptions {
@@ -154,14 +156,14 @@ function truncateOneLine(value: string, maxLength: number): string {
     : `${oneLine.slice(0, maxLength - 3)}...`;
 }
 
-async function selectExistingIssue(owner: string, repoName: string): Promise<SourceIssue | undefined> {
-  const manualValue = '__manual_instruction__';
+async function selectExistingIssues(owner: string, repoName: string): Promise<SourceIssue[] | undefined> {
   const s = spinner();
   s.start('GitHub Issue を取得中...');
 
+  const githubAgent = new GitHubAgent();
   let issues: SourceIssue[] = [];
   try {
-    issues = await new GitHubAgent().listOpenIssues(
+    issues = await githubAgent.listOpenIssues(
       owner,
       repoName,
       Number(process.env.ISSUE_SELECT_LIMIT || '30')
@@ -178,29 +180,58 @@ async function selectExistingIssue(owner: string, repoName: string): Promise<Sou
     return undefined;
   }
 
-  const selectedIssueRaw = await select({
-    message: '実行対象の Issue を選択',
+  const allLimit = Number(process.env.ISSUE_RUN_ALL_LIMIT || '1000');
+  const scopeRaw = await select({
+    message: 'Issue の実行範囲',
     options: [
-      { value: manualValue, label: '手動入力', hint: 'Issue を使わずに依頼文を入力する' },
-      ...issues.map((issue) => ({
-        value: `issue:${issue.number}`,
-        label: `#${issue.number} ${truncateOneLine(issue.title, 70)}`,
-        hint: [
-          issue.labels.length > 0 ? issue.labels.join(', ') : '',
-          issue.updatedAt ? `updated ${issue.updatedAt.slice(0, 10)}` : '',
-        ].filter(Boolean).join(' · '),
-      })),
+      { value: 'multi',  label: 'Issue を選択',     hint: '複数選択できます' },
+      { value: 'all',    label: 'open Issue 全件', hint: `最大${allLimit}件まで取得して実行` },
+      { value: 'manual', label: '手動入力',         hint: 'Issue を使わずに依頼文を入力する' },
     ],
-    initialValue: issues[0] ? `issue:${issues[0].number}` : manualValue,
+    initialValue: 'multi',
+  });
+  if (isCancel(scopeRaw)) { outro('中止'); process.exit(0); }
+
+  if (scopeRaw === 'manual') {
+    return undefined;
+  }
+  if (scopeRaw === 'all') {
+    if (allLimit <= issues.length) {
+      return issues;
+    }
+
+    const allSpinner = spinner();
+    allSpinner.start('open Issue 全件を取得中...');
+    try {
+      const allIssues = await githubAgent.listOpenIssues(owner, repoName, allLimit);
+      allSpinner.stop('');
+      return allIssues;
+    } catch (err) {
+      allSpinner.stop('');
+      throw err;
+    }
+  }
+
+  const selectedIssueRaw = await multiselect({
+    message: '実行対象の Issue を選択',
+    options: issues.map((issue) => ({
+      value: `issue:${issue.number}`,
+      label: `#${issue.number} ${truncateOneLine(issue.title, 70)}`,
+      hint: [
+        issue.labels.length > 0 ? issue.labels.join(', ') : '',
+        issue.updatedAt ? `updated ${issue.updatedAt.slice(0, 10)}` : '',
+      ].filter(Boolean).join(' · '),
+    })),
+    initialValues: issues[0] ? [`issue:${issues[0].number}`] : undefined,
+    required: true,
+    maxItems: 12,
   });
   if (isCancel(selectedIssueRaw)) { outro('中止'); process.exit(0); }
 
-  if (selectedIssueRaw === manualValue) {
-    return undefined;
-  }
-
-  const issueNumber = Number(String(selectedIssueRaw).replace('issue:', ''));
-  return issues.find((issue) => issue.number === issueNumber);
+  const issueNumbers = new Set(
+    selectedIssueRaw.map((value) => Number(String(value).replace('issue:', '')))
+  );
+  return issues.filter((issue) => issueNumbers.has(issue.number));
 }
 
 export async function showRequestWizard(
@@ -233,7 +264,7 @@ export async function showRequestWizard(
   // Repository selection
   let owner: string;
   let repoName: string;
-  let sourceIssue: SourceIssue | undefined;
+  let sourceIssues: SourceIssue[] | undefined;
 
   if (projectMode === 'modify') {
     const scanSpinner = spinner();
@@ -288,7 +319,7 @@ export async function showRequestWizard(
       owner = parts.length >= 2 ? parts[0] : (detectedOwner || 'unknown');
       repoName = parts.length >= 2 ? parts[1] : parts[0];
     }
-    sourceIssue = await selectExistingIssue(owner, repoName);
+    sourceIssues = await selectExistingIssues(owner, repoName);
   } else {
     // New repo — text input only
     const repoRaw = await text({
@@ -303,9 +334,12 @@ export async function showRequestWizard(
   }
 
   let instruction: string;
-  if (sourceIssue) {
-    instruction = buildIssueInstruction(sourceIssue);
-    clackLog.info(`Issue #${sourceIssue.number} を依頼内容として使用します。`);
+  if (sourceIssues && sourceIssues.length > 0) {
+    instruction = buildIssuesInstruction(sourceIssues);
+    const issueSummary = sourceIssues.length === 1
+      ? `Issue #${sourceIssues[0].number}`
+      : `${sourceIssues.length}件のIssue`;
+    clackLog.info(`${issueSummary} を依頼内容として使用します。`);
   } else {
     const instructionRaw = await text({
       message: '指示を入力してください（自然言語）',
@@ -317,7 +351,7 @@ export async function showRequestWizard(
   }
 
   // Phase mode
-  const phaseOptions = sourceIssue
+  const phaseOptions = sourceIssues && sourceIssues.length > 0
     ? [
         { value: 'phase1+2',   label: 'Issue確認 + 実装', hint: '選択した Issue をそのまま実行' },
         { value: 'phase1only', label: 'Issue確認のみ',    hint: '内容確認ドキュメントと実行タスクを作成して停止' },
@@ -421,7 +455,8 @@ export async function showRequestWizard(
     fallbackProvider,
     codexModel,
     codexIntelligence,
-    sourceIssue,
+    sourceIssue: sourceIssues?.[0],
+    sourceIssues,
   };
 }
 

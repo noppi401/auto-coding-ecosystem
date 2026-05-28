@@ -25,8 +25,16 @@ export class StateManager {
       projectMode?: ProjectState['projectMode'];
       repositoryContext?: string;
       sourceIssue?: ProjectState['sourceIssue'];
+      sourceIssues?: ProjectState['sourceIssues'];
     } = {}
   ): Promise<ProjectState> {
+    const sourceIssues =
+      options.sourceIssues && options.sourceIssues.length > 0
+        ? options.sourceIssues
+        : options.sourceIssue
+          ? [options.sourceIssue]
+          : undefined;
+
     const state: ProjectState = {
       projectId: randomUUID(),
       phase: 'requirements',
@@ -35,7 +43,8 @@ export class StateManager {
       githubOwner: owner,
       githubRepo: repo,
       repositoryContext: options.repositoryContext,
-      sourceIssue: options.sourceIssue,
+      sourceIssue: sourceIssues?.[0],
+      sourceIssues,
       requirementsDoc: '',
       designDoc: '',
       tasks: [],

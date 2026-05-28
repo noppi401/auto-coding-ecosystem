@@ -13,3 +13,19 @@ export function buildIssueInstruction(issue: SourceIssue): string {
     body,
   ].join('\n');
 }
+
+export function buildIssuesInstruction(issues: SourceIssue[]): string {
+  if (issues.length === 1) {
+    return buildIssueInstruction(issues[0]);
+  }
+
+  return [
+    'GitHub Issues:',
+    issues.map((issue) => `- #${issue.number}: ${issue.title}`).join('\n'),
+    '',
+    ...issues.flatMap((issue, index) => [
+      index > 0 ? '---' : '',
+      buildIssueInstruction(issue),
+    ].filter(Boolean)),
+  ].join('\n');
+}

@@ -12,7 +12,7 @@ import { showHomeMenu } from './ui/prompts/homeMenu.js';
 import { showRequestWizard, showModelSelectWizard } from './ui/prompts/requestWizard.js';
 import { ensureGhAuth } from './ui/prompts/authPrompt.js';
 import { parseCodexIntelligence } from './utils/codex-options.js';
-import { buildIssueInstruction } from './utils/issue-instruction.js';
+import { buildIssuesInstruction } from './utils/issue-instruction.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import type { SourceIssue } from './state/types.js';
 
@@ -34,6 +34,14 @@ function parseIssueNumber(value: string): number {
     throw new Error('--issue-number must be a positive integer');
   }
   return issueNumber;
+}
+
+function parseIssueNumbers(value: string): number[] {
+  return value
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map(parseIssueNumber);
 }
 
 function applyLlmOptions(args: string[]): void {
@@ -175,18 +183,22 @@ async function printLlmLimitNotice(err: LlmUsageLimitError): Promise<void> {
   if (state) printFinalState(state);
 }
 
-async function loadIssueInstruction(
+async function loadIssuesInstruction(
   owner: string,
   repoName: string,
-  issueNumber: number,
+  issueNumbers: number[],
   supplementalInstruction?: string | null
-): Promise<{ instruction: string; sourceIssue: SourceIssue }> {
-  const sourceIssue = await new GitHubAgent().getIssue(owner, repoName, issueNumber);
-  const issueInstruction = buildIssueInstruction(sourceIssue);
+): Promise<{ instruction: string; sourceIssues: SourceIssue[] }> {
+  const uniqueIssueNumbers = [...new Set(issueNumbers)];
+  const githubAgent = new GitHubAgent();
+  const sourceIssues = await Promise.all(
+    uniqueIssueNumbers.map((issueNumber) => githubAgent.getIssue(owner, repoName, issueNumber))
+  );
+  const issueInstruction = buildIssuesInstruction(sourceIssues);
   const supplemental = supplementalInstruction?.trim();
 
   return {
-    sourceIssue,
+    sourceIssues,
     instruction: supplemental
       ? [issueInstruction, '', '追加指示:', supplemental].join('\n')
       : issueInstruction,
@@ -209,7 +221,12 @@ async function plainStart(
   repoName: string,
   autoPhase2: boolean,
   retryFailed: boolean,
-  options: { projectMode?: 'new' | 'modify'; ownerOverride?: string; sourceIssue?: SourceIssue } = {}
+  options: {
+    projectMode?: 'new' | 'modify';
+    ownerOverride?: string;
+    sourceIssue?: SourceIssue;
+    sourceIssues?: SourceIssue[];
+  } = {}
 ): Promise<void> {
   const owner = options.ownerOverride || process.env.GITHUB_OWNER;
   if (!owner) { console.error('Error: GITHUB_OWNER not set'); process.exit(1); }
@@ -218,6 +235,7 @@ async function plainStart(
   const state = await orchestrator.runPhase1(instruction, owner, repoName, {
     projectMode: options.projectMode || 'new',
     sourceIssue: options.sourceIssue,
+    sourceIssues: options.sourceIssues,
   });
 
   console.log(`\nTasks created: ${state.tasks.length}`);
@@ -302,7 +320,7 @@ async function uiEntry(args: string[]): Promise<void> {
     let ownerOverride: string | undefined;
     let autoPhase2 = false;
     let retryFailed = false;
-    let issueNumber: number | undefined;
+    const issueNumbers: number[] = [];
 
     for (let i = 1; i < args.length; i++) {
       if (args[i] === '--instruction'      && i + 1 < args.length) { instruction     = args[++i]; }
@@ -315,23 +333,23 @@ async function uiEntry(args: string[]): Promise<void> {
       }
       else if (args[i] === '--auto')         { autoPhase2 = true; }
       else if (args[i] === '--retry-failed') { retryFailed = true; }
-      else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumber = parseIssueNumber(args[++i]); }
+      else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumbers.push(...parseIssueNumbers(args[++i])); }
     }
 
     if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
-    if (!repoName || (!instruction && !issueNumber)) {
+    if (!repoName || (!instruction && issueNumbers.length === 0)) {
       console.error('Error: instruction or issue-number, and repo-name are required'); process.exit(1);
     }
 
     const owner = ownerOverride || process.env.GITHUB_OWNER;
     if (!owner) { console.error('Error: GITHUB_OWNER not set'); process.exit(1); }
 
-    let sourceIssue: SourceIssue | undefined;
-    if (issueNumber) {
+    let sourceIssues: SourceIssue[] | undefined;
+    if (issueNumbers.length > 0) {
       await ensureGhAuth();
-      const issueInput = await loadIssueInstruction(owner, repoName, issueNumber, instruction);
+      const issueInput = await loadIssuesInstruction(owner, repoName, issueNumbers, instruction);
       instruction = issueInput.instruction;
-      sourceIssue = issueInput.sourceIssue;
+      sourceIssues = issueInput.sourceIssues;
     }
 
     const projectMode = args[0] === 'modify' ? 'modify' : 'new';
@@ -339,7 +357,11 @@ async function uiEntry(args: string[]): Promise<void> {
 
     await ensureGhAuth();
     await launchInk(async () => {
-      await orchestrator.runPhase1(instruction!, owner, repoName!, { projectMode, sourceIssue });
+      await orchestrator.runPhase1(instruction!, owner, repoName!, {
+        projectMode,
+        sourceIssue: sourceIssues?.[0],
+        sourceIssues,
+      });
       if (autoPhase2) await orchestrator.runPhase2(retryFailed);
     });
     return;
@@ -425,6 +447,7 @@ async function uiEntry(args: string[]): Promise<void> {
     await orchestrator.runPhase1(wizard.instruction, wizard.owner, wizard.repoName, {
       projectMode: wizard.projectMode,
       sourceIssue: wizard.sourceIssue,
+      sourceIssues: wizard.sourceIssues,
     });
     if (wizard.phaseMode === 'phase1+2') {
       await orchestrator.runPhase2(false);
@@ -459,7 +482,7 @@ async function main(): Promise<void> {
         let ownerOverride: string | undefined;
         let autoPhase2 = false;
         let retryFailed = false;
-        let issueNumber: number | undefined;
+        const issueNumbers: number[] = [];
 
         for (let i = 1; i < args.length; i++) {
           if (args[i] === '--instruction'       && i + 1 < args.length) { instruction     = args[++i]; }
@@ -472,22 +495,23 @@ async function main(): Promise<void> {
           }
           else if (args[i] === '--auto')          { autoPhase2 = true; }
           else if (args[i] === '--retry-failed')  { retryFailed = true; }
-          else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumber = parseIssueNumber(args[++i]); }
+          else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumbers.push(...parseIssueNumbers(args[++i])); }
         }
         if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
-        if (!repoName || (!instruction && !issueNumber)) { console.error('instruction or issue-number, and repo-name are required'); process.exit(1); }
-        let sourceIssue: SourceIssue | undefined;
-        if (issueNumber) {
+        if (!repoName || (!instruction && issueNumbers.length === 0)) { console.error('instruction or issue-number, and repo-name are required'); process.exit(1); }
+        let sourceIssues: SourceIssue[] | undefined;
+        if (issueNumbers.length > 0) {
           const owner = ownerOverride || process.env.GITHUB_OWNER;
           if (!owner) { console.error('GITHUB_OWNER is required for issue-number'); process.exit(1); }
-          const issueInput = await loadIssueInstruction(owner, repoName, issueNumber, instruction);
+          const issueInput = await loadIssuesInstruction(owner, repoName, issueNumbers, instruction);
           instruction = issueInput.instruction;
-          sourceIssue = issueInput.sourceIssue;
+          sourceIssues = issueInput.sourceIssues;
         }
         await plainStart(instruction!, repoName, autoPhase2, retryFailed, {
           projectMode: args[0] === 'modify' ? 'modify' : 'new',
           ownerOverride,
-          sourceIssue,
+          sourceIssue: sourceIssues?.[0],
+          sourceIssues,
         });
       } else if (args[0] === 'phase2') {
         await plainPhase2(args.includes('--retry-failed') || args.includes('--loop-until-limit'), {

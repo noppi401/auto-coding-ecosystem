@@ -39,11 +39,18 @@ export class Orchestrator {
     options: {
       projectMode?: ProjectState['projectMode'];
       sourceIssue?: SourceIssue;
+      sourceIssues?: SourceIssue[];
     } = {}
   ): Promise<ProjectState> {
     logger.section('PHASE 1: REQUIREMENTS → DESIGN → TASKS');
 
     const projectMode = options.projectMode || 'new';
+    const sourceIssues =
+      options.sourceIssues && options.sourceIssues.length > 0
+        ? options.sourceIssues
+        : options.sourceIssue
+          ? [options.sourceIssue]
+          : [];
     const githubAgent = new GitHubAgent();
     let repositoryContext: string | undefined;
 
@@ -59,7 +66,8 @@ export class Orchestrator {
       {
         projectMode,
         repositoryContext,
-        sourceIssue: options.sourceIssue,
+        sourceIssue: sourceIssues[0],
+        sourceIssues,
       }
     );
 
@@ -81,9 +89,9 @@ export class Orchestrator {
       logger.info('Using existing repository for modification', `${owner}/${repo}`);
     }
 
-    if (options.sourceIssue) {
+    if (sourceIssues.length > 0) {
       return await this._runIssueOnlyPlanning(
-        options.sourceIssue,
+        sourceIssues,
         instruction,
         owner,
         repo,
@@ -130,12 +138,12 @@ export class Orchestrator {
     );
 
     logger.section('Step 5/5: GitHub Issue Registration');
-    await this._createIssuesForTasks(tasks, owner, repo, options.sourceIssue);
+    await this._createIssuesForTasks(tasks, owner, repo, sourceIssues[0]);
 
     await this.stateManager.setTasks(tasks);
-    if (options.sourceIssue) {
+    if (sourceIssues[0]) {
       try {
-        await this._commentSourceIssueWithTasks(options.sourceIssue, tasks, owner, repo);
+        await this._commentSourceIssueWithTasks(sourceIssues[0], tasks, owner, repo);
       } catch (err) {
         logger.warn('Failed to comment source issue with generated task list; continuing', String(err));
       }
@@ -620,16 +628,19 @@ export class Orchestrator {
   }
 
   private async _runIssueOnlyPlanning(
-    sourceIssue: SourceIssue,
+    sourceIssues: SourceIssue[],
     instruction: string,
     owner: string,
     repo: string,
     repositoryContext?: string
   ): Promise<ProjectState> {
     logger.section('ISSUE PLANNING: CHECK EXISTING ISSUE');
+    if (sourceIssues.length === 0) {
+      throw new Error('No source issues selected');
+    }
 
-    const requirementsDoc = this._buildSourceIssueRequirementsDoc(sourceIssue, instruction);
-    const designDoc = this._buildSourceIssueDesignDoc(sourceIssue, repositoryContext);
+    const requirementsDoc = this._buildSourceIssueRequirementsDoc(sourceIssues, instruction);
+    const designDoc = this._buildSourceIssueDesignDoc(sourceIssues, repositoryContext);
 
     await this._saveMarkdown('.ecosystem/requirements.md', requirementsDoc);
     await this.stateManager.updateRequirementsDoc(requirementsDoc);
@@ -637,7 +648,7 @@ export class Orchestrator {
     await this.stateManager.updateDesignDoc(designDoc);
 
     const now = new Date().toISOString();
-    const task: Task = {
+    const tasks: Task[] = sourceIssues.map((sourceIssue) => ({
       id: randomUUID(),
       title: sourceIssue.title,
       summary: [
@@ -652,53 +663,61 @@ export class Orchestrator {
       reviewIteration: 0,
       createdAt: now,
       updatedAt: now,
-    };
+    }));
 
-    await this.stateManager.setTasks([task]);
+    await this.stateManager.setTasks(tasks);
     const currentState = await this.stateManager.load();
     if (!currentState) throw new Error('Failed to load state');
 
-    logger.info('Existing issue accepted as executable task', {
-      issue: `#${sourceIssue.number}`,
-      title: sourceIssue.title,
+    logger.info('Existing issues accepted as executable tasks', {
+      issueCount: sourceIssues.length,
+      issues: sourceIssues.map((issue) => `#${issue.number}`).join(', '),
     });
 
     return currentState;
   }
 
-  private _buildSourceIssueRequirementsDoc(sourceIssue: SourceIssue, instruction: string): string {
-    const labels = sourceIssue.labels.length > 0 ? sourceIssue.labels.join(', ') : 'なし';
-    const body = sourceIssue.body.trim() || '(本文なし)';
+  private _buildSourceIssueRequirementsDoc(sourceIssues: SourceIssue[], instruction: string): string {
+    const issueSections = sourceIssues.map((sourceIssue) => {
+      const labels = sourceIssue.labels.length > 0 ? sourceIssue.labels.join(', ') : 'なし';
+      const body = sourceIssue.body.trim() || '(本文なし)';
 
-    return `# 既存 Issue 内容確認
-
-## 対象 Issue
-- Issue: #${sourceIssue.number}
+      return `### Issue #${sourceIssue.number}
 - Title: ${sourceIssue.title}
 - URL: ${sourceIssue.url}
 - Labels: ${labels}
 
-## Issue 本文
-${body}
+${body}`;
+    }).join('\n\n');
+
+    return `# 既存 Issue 内容確認
+
+## 対象 Issue
+${issueSections}
 
 ## 実行判断
-- 既存 Issue を実行単位として扱う
+- 選択した既存 Issue をそれぞれ実行単位として扱う
 - 追加のタスク分解 Issue は作成しない
-- 実装 PR はこの Issue に紐づける
+- 実装 PR は各 Issue に紐づける
 
 ## 入力全文
 ${instruction}
 `;
   }
 
-  private _buildSourceIssueDesignDoc(sourceIssue: SourceIssue, repositoryContext?: string): string {
+  private _buildSourceIssueDesignDoc(sourceIssues: SourceIssue[], repositoryContext?: string): string {
+    const targetIssues = sourceIssues
+      .map((sourceIssue) => `- GitHub Issue #${sourceIssue.number}: ${sourceIssue.title}`)
+      .join('\n');
+
     return `# 既存 Issue 実装メモ
 
 ## 実装対象
-GitHub Issue #${sourceIssue.number}: ${sourceIssue.title}
+${targetIssues}
 
 ## 実装方針
 - Issue 本文を受け入れ条件として扱う
+- Issue ごとに独立した実行タスクとして処理する
 - 既存コードを読んで、最小限の変更で Issue を解決する
 - 変更後は既存の build/test チェックで検証する
 
@@ -789,31 +808,42 @@ ${repositoryContext || '(repository context was not loaded)'}
   }
 
   private async _closeSourceIssueIfNeeded(state: ProjectState): Promise<void> {
-    if (!state.sourceIssue) {
+    const sourceIssues =
+      state.sourceIssues && state.sourceIssues.length > 0
+        ? state.sourceIssues
+        : state.sourceIssue
+          ? [state.sourceIssue]
+          : [];
+    if (sourceIssues.length === 0) {
       return;
     }
 
-    const sourceIssueHandledAsTask = state.tasks.some(
-      (task) => task.issueNumber === state.sourceIssue?.number
+    const taskIssueNumbers = new Set(
+      state.tasks
+        .map((task) => task.issueNumber)
+        .filter((issueNumber): issueNumber is number => issueNumber !== undefined)
     );
-    if (sourceIssueHandledAsTask) {
-      return;
-    }
 
     const completedTasks = state.tasks
       .filter((task) => task.issueNumber)
       .map((task) => `#${task.issueNumber}`)
       .join(', ');
 
-    await this.githubAgent.closeIssue(
-      state.githubOwner,
-      state.githubRepo,
-      state.sourceIssue.number,
-      [
-        'Auto Coding Ecosystem による実行が完了しました。',
-        completedTasks ? `完了した実行タスク: ${completedTasks}` : '',
-      ].filter(Boolean).join('\n\n')
-    );
+    for (const sourceIssue of sourceIssues) {
+      if (taskIssueNumbers.has(sourceIssue.number)) {
+        continue;
+      }
+
+      await this.githubAgent.closeIssue(
+        state.githubOwner,
+        state.githubRepo,
+        sourceIssue.number,
+        [
+          'Auto Coding Ecosystem による実行が完了しました。',
+          completedTasks ? `完了した実行タスク: ${completedTasks}` : '',
+        ].filter(Boolean).join('\n\n')
+      );
+    }
   }
 
   private async _runBuildCheck(

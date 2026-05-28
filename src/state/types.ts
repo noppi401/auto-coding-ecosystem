@@ -67,6 +67,7 @@ export interface ProjectState {
   githubRepo: string;
   repositoryContext?: string;
   sourceIssue?: SourceIssue;
+  sourceIssues?: SourceIssue[];
   requirementsDoc: string;
   designDoc: string;
   tasks: Task[];
