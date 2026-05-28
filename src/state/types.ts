@@ -19,6 +19,15 @@ export type ProjectPhase =
 
 export type ProjectMode = 'new' | 'modify';
 
+export interface SourceIssue {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  labels: string[];
+  updatedAt?: string;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -57,6 +66,7 @@ export interface ProjectState {
   githubOwner: string;
   githubRepo: string;
   repositoryContext?: string;
+  sourceIssue?: SourceIssue;
   requirementsDoc: string;
   designDoc: string;
   tasks: Task[];

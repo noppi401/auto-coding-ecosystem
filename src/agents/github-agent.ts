@@ -3,7 +3,7 @@ import { promisify } from 'util';
 import { promises as fs } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
-import { ReviewComment } from '../state/types.js';
+import { ReviewComment, SourceIssue } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 
 const execFileAsync = promisify(execFile);
@@ -290,6 +290,42 @@ export class GitHubAgent {
       issueNumber: Number(match[1]),
       issueUrl,
     };
+  }
+
+  async listOpenIssues(owner: string, repo: string, limit: number = 30): Promise<SourceIssue[]> {
+    const result = await this.exec('gh', [
+      'issue',
+      'list',
+      '--repo',
+      `${owner}/${repo}`,
+      '--state',
+      'open',
+      '--json',
+      'number,title,body,url,labels,updatedAt',
+      '--limit',
+      String(limit),
+    ]);
+
+    return this.parseIssues(result);
+  }
+
+  async getIssue(owner: string, repo: string, issueNumber: number): Promise<SourceIssue> {
+    const result = await this.exec('gh', [
+      'issue',
+      'view',
+      String(issueNumber),
+      '--repo',
+      `${owner}/${repo}`,
+      '--json',
+      'number,title,body,url,labels,updatedAt',
+    ]);
+
+    const issue = this.parseIssue(JSON.parse(result));
+    if (!issue) {
+      throw new Error(`Failed to parse issue #${issueNumber}`);
+    }
+
+    return issue;
   }
 
   async commentIssue(
@@ -709,5 +745,36 @@ export class GitHubAgent {
       const stdout = err?.stdout ? String(err.stdout) : '';
       throw new Error(`${command} ${args.join(' ')} failed: ${stderr || stdout || err.message}`);
     }
+  }
+
+  private parseIssues(result: string): SourceIssue[] {
+    const issues = JSON.parse(result) as unknown[];
+    return issues.map((issue) => this.parseIssue(issue)).filter((issue): issue is SourceIssue => Boolean(issue));
+  }
+
+  private parseIssue(value: unknown): SourceIssue | null {
+    const issue = value as {
+      number?: number;
+      title?: string;
+      body?: string;
+      url?: string;
+      labels?: Array<{ name?: string } | string>;
+      updatedAt?: string;
+    };
+
+    if (!issue?.number || !issue.title || !issue.url) {
+      return null;
+    }
+
+    return {
+      number: issue.number,
+      title: issue.title,
+      body: issue.body || '',
+      url: issue.url,
+      labels: (issue.labels || [])
+        .map((label) => typeof label === 'string' ? label : label.name)
+        .filter((label): label is string => Boolean(label)),
+      updatedAt: issue.updatedAt,
+    };
   }
 }

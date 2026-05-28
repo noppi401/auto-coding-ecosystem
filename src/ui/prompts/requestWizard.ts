@@ -11,6 +11,9 @@ import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import type { CodexIntelligence } from '../../utils/codex-options.js';
+import type { SourceIssue } from '../../state/types.js';
+import { GitHubAgent } from '../../agents/github-agent.js';
+import { buildIssueInstruction } from '../../utils/issue-instruction.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
 export type ProjectMode = 'new' | 'modify';
@@ -30,6 +33,7 @@ export interface WizardResult {
   fallbackProvider: LlmProviderChoice;
   codexModel?: string;
   codexIntelligence?: CodexIntelligenceChoice;
+  sourceIssue?: SourceIssue;
 }
 
 async function detectOwner(): Promise<string> {
@@ -138,6 +142,62 @@ function getDefaultCodexIntelligence(
     : 'config';
 }
 
+function truncateOneLine(value: string, maxLength: number): string {
+  const oneLine = value.replace(/\s+/g, ' ').trim();
+  return oneLine.length <= maxLength
+    ? oneLine
+    : `${oneLine.slice(0, maxLength - 3)}...`;
+}
+
+async function selectExistingIssue(owner: string, repoName: string): Promise<SourceIssue | undefined> {
+  const manualValue = '__manual_instruction__';
+  const s = spinner();
+  s.start('GitHub Issue を取得中...');
+
+  let issues: SourceIssue[] = [];
+  try {
+    issues = await new GitHubAgent().listOpenIssues(
+      owner,
+      repoName,
+      Number(process.env.ISSUE_SELECT_LIMIT || '30')
+    );
+    s.stop('');
+  } catch (err) {
+    s.stop('');
+    clackLog.warn(`Issue の取得に失敗しました。手動入力に進みます: ${String(err)}`);
+    return undefined;
+  }
+
+  if (issues.length === 0) {
+    clackLog.info('open Issue が見つからないため、手動入力に進みます。');
+    return undefined;
+  }
+
+  const selectedIssueRaw = await select({
+    message: '実行対象の Issue を選択',
+    options: [
+      { value: manualValue, label: '手動入力', hint: 'Issue を使わずに依頼文を入力する' },
+      ...issues.map((issue) => ({
+        value: `issue:${issue.number}`,
+        label: `#${issue.number} ${truncateOneLine(issue.title, 70)}`,
+        hint: [
+          issue.labels.length > 0 ? issue.labels.join(', ') : '',
+          issue.updatedAt ? `updated ${issue.updatedAt.slice(0, 10)}` : '',
+        ].filter(Boolean).join(' · '),
+      })),
+    ],
+    initialValue: issues[0] ? `issue:${issues[0].number}` : manualValue,
+  });
+  if (isCancel(selectedIssueRaw)) { outro('中止'); process.exit(0); }
+
+  if (selectedIssueRaw === manualValue) {
+    return undefined;
+  }
+
+  const issueNumber = Number(String(selectedIssueRaw).replace('issue:', ''));
+  return issues.find((issue) => issue.number === issueNumber);
+}
+
 export async function showRequestWizard(
   defaults: Partial<WizardResult> = {}
 ): Promise<WizardResult> {
@@ -162,6 +222,7 @@ export async function showRequestWizard(
   // Repository selection
   let owner: string;
   let repoName: string;
+  let sourceIssue: SourceIssue | undefined;
 
   if (projectMode === 'modify') {
     const scanSpinner = spinner();
@@ -216,6 +277,7 @@ export async function showRequestWizard(
       owner = parts.length >= 2 ? parts[0] : (detectedOwner || 'unknown');
       repoName = parts.length >= 2 ? parts[1] : parts[0];
     }
+    sourceIssue = await selectExistingIssue(owner, repoName);
   } else {
     // New repo — text input only
     const repoRaw = await text({
@@ -229,13 +291,19 @@ export async function showRequestWizard(
     repoName = (repoRaw as string).trim();
   }
 
-  // Instruction
-  const instructionRaw = await text({
-    message: '指示を入力してください（自然言語）',
-    placeholder: 'ユーザー認証機能を追加してください...',
-    validate: (v) => ((v ?? '').trim().length >= 5 ? undefined : '5文字以上入力してください'),
-  });
-  if (isCancel(instructionRaw)) { outro('中止'); process.exit(0); }
+  let instruction: string;
+  if (sourceIssue) {
+    instruction = buildIssueInstruction(sourceIssue);
+    clackLog.info(`Issue #${sourceIssue.number} を依頼内容として使用します。`);
+  } else {
+    const instructionRaw = await text({
+      message: '指示を入力してください（自然言語）',
+      placeholder: 'ユーザー認証機能を追加してください...',
+      validate: (v) => ((v ?? '').trim().length >= 5 ? undefined : '5文字以上入力してください'),
+    });
+    if (isCancel(instructionRaw)) { outro('中止'); process.exit(0); }
+    instruction = (instructionRaw as string).trim();
+  }
 
   // Phase mode
   const phaseMode = await select({
@@ -322,7 +390,7 @@ export async function showRequestWizard(
   );
 
   return {
-    instruction: (instructionRaw as string).trim(),
+    instruction,
     repoName,
     owner,
     projectMode,
@@ -334,6 +402,7 @@ export async function showRequestWizard(
     fallbackProvider,
     codexModel,
     codexIntelligence,
+    sourceIssue,
   };
 }
 

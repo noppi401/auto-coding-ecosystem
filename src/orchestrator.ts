@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import { dirname } from 'path';
 import { StateManager } from './state/manager.js';
-import { ProjectState, ReviewComment, ReviewResult, Task } from './state/types.js';
+import { ProjectState, ReviewComment, ReviewResult, SourceIssue, Task } from './state/types.js';
 import { logger } from './utils/logger.js';
 import { RequirementsAgent } from './agents/requirements-agent.js';
 import { RequirementsValidationAgent } from './agents/requirements-validation-agent.js';
@@ -37,6 +37,7 @@ export class Orchestrator {
     repo: string,
     options: {
       projectMode?: ProjectState['projectMode'];
+      sourceIssue?: SourceIssue;
     } = {}
   ): Promise<ProjectState> {
     logger.section('PHASE 1: REQUIREMENTS → DESIGN → TASKS');
@@ -57,6 +58,7 @@ export class Orchestrator {
       {
         projectMode,
         repositoryContext,
+        sourceIssue: options.sourceIssue,
       }
     );
 
@@ -117,9 +119,16 @@ export class Orchestrator {
     );
 
     logger.section('Step 5/5: GitHub Issue Registration');
-    await this._createIssuesForTasks(tasks, owner, repo);
+    await this._createIssuesForTasks(tasks, owner, repo, options.sourceIssue);
 
     await this.stateManager.setTasks(tasks);
+    if (options.sourceIssue) {
+      try {
+        await this._commentSourceIssueWithTasks(options.sourceIssue, tasks, owner, repo);
+      } catch (err) {
+        logger.warn('Failed to comment source issue with generated task list; continuing', String(err));
+      }
+    }
     currentState = await this.stateManager.load();
     if (!currentState) throw new Error('Failed to load state');
     currentState.agentHistories.taskDecomp = taskAgent.getHistory();
@@ -224,6 +233,7 @@ export class Orchestrator {
 
     if (latestState) {
       await this._verifyContextWorktreeSynced(latestState);
+      await this._closeSourceIssueIfNeeded(latestState);
     }
 
     await this.stateManager.markCompleted();
@@ -607,7 +617,8 @@ export class Orchestrator {
   private async _createIssuesForTasks(
     tasks: Task[],
     owner: string,
-    repo: string
+    repo: string,
+    sourceIssue?: SourceIssue
   ): Promise<void> {
     for (const [index, task] of tasks.entries()) {
       logger.info('Creating GitHub issue for task...', `${index + 1}/${tasks.length}: ${task.title}`);
@@ -626,6 +637,13 @@ export class Orchestrator {
           ...(task.targetFiles.length > 0
             ? task.targetFiles.map((file) => `- ${file}`)
             : ['- (not specified)']),
+          ...(sourceIssue
+            ? [
+                '',
+                `Source issue: #${sourceIssue.number}`,
+                sourceIssue.url,
+              ]
+            : []),
           '',
           'This issue is managed by Auto Coding Ecosystem and will be processed in queue order.',
         ].join('\n')
@@ -634,6 +652,52 @@ export class Orchestrator {
       task.issueNumber = issue.issueNumber;
       task.issueUrl = issue.issueUrl;
     }
+  }
+
+  private async _commentSourceIssueWithTasks(
+    sourceIssue: SourceIssue,
+    tasks: Task[],
+    owner: string,
+    repo: string
+  ): Promise<void> {
+    const taskLines = tasks.map((task) =>
+      task.issueNumber
+        ? `- #${task.issueNumber}: ${task.title}`
+        : `- ${task.title}`
+    );
+
+    await this.githubAgent.commentIssue(
+      owner,
+      repo,
+      sourceIssue.number,
+      [
+        'Auto Coding Ecosystem がこの Issue の処理を開始しました。',
+        '',
+        '生成された実行タスク:',
+        ...taskLines,
+      ].join('\n')
+    );
+  }
+
+  private async _closeSourceIssueIfNeeded(state: ProjectState): Promise<void> {
+    if (!state.sourceIssue) {
+      return;
+    }
+
+    const completedTasks = state.tasks
+      .filter((task) => task.issueNumber)
+      .map((task) => `#${task.issueNumber}`)
+      .join(', ');
+
+    await this.githubAgent.closeIssue(
+      state.githubOwner,
+      state.githubRepo,
+      state.sourceIssue.number,
+      [
+        'Auto Coding Ecosystem による実行が完了しました。',
+        completedTasks ? `完了した実行タスク: ${completedTasks}` : '',
+      ].filter(Boolean).join('\n\n')
+    );
   }
 
   private async _runBuildCheck(

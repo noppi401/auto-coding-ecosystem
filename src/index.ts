@@ -12,6 +12,9 @@ import { showHomeMenu } from './ui/prompts/homeMenu.js';
 import { showRequestWizard, showModelSelectWizard } from './ui/prompts/requestWizard.js';
 import { ensureGhAuth } from './ui/prompts/authPrompt.js';
 import { parseCodexIntelligence } from './utils/codex-options.js';
+import { buildIssueInstruction } from './utils/issue-instruction.js';
+import { GitHubAgent } from './agents/github-agent.js';
+import type { SourceIssue } from './state/types.js';
 
 config({ path: resolve('.env') });
 
@@ -23,6 +26,14 @@ type LlmProviderOption = Exclude<LimitProvider, 'all'>;
 function parseLlmProviderOption(value: string): LlmProviderOption {
   if (value === 'claude' || value === 'codex' || value === 'gemini') return value;
   throw new Error('provider must be one of: claude, codex, gemini');
+}
+
+function parseIssueNumber(value: string): number {
+  const issueNumber = Number(value);
+  if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+    throw new Error('--issue-number must be a positive integer');
+  }
+  return issueNumber;
 }
 
 function applyLlmOptions(args: string[]): void {
@@ -164,6 +175,24 @@ async function printLlmLimitNotice(err: LlmUsageLimitError): Promise<void> {
   if (state) printFinalState(state);
 }
 
+async function loadIssueInstruction(
+  owner: string,
+  repoName: string,
+  issueNumber: number,
+  supplementalInstruction?: string | null
+): Promise<{ instruction: string; sourceIssue: SourceIssue }> {
+  const sourceIssue = await new GitHubAgent().getIssue(owner, repoName, issueNumber);
+  const issueInstruction = buildIssueInstruction(sourceIssue);
+  const supplemental = supplementalInstruction?.trim();
+
+  return {
+    sourceIssue,
+    instruction: supplemental
+      ? [issueInstruction, '', '追加指示:', supplemental].join('\n')
+      : issueInstruction,
+  };
+}
+
 // ── ink launcher ─────────────────────────────────────────────────────────────
 
 async function launchInk(runFn: () => Promise<void>): Promise<void> {
@@ -180,7 +209,7 @@ async function plainStart(
   repoName: string,
   autoPhase2: boolean,
   retryFailed: boolean,
-  options: { projectMode?: 'new' | 'modify'; ownerOverride?: string } = {}
+  options: { projectMode?: 'new' | 'modify'; ownerOverride?: string; sourceIssue?: SourceIssue } = {}
 ): Promise<void> {
   const owner = options.ownerOverride || process.env.GITHUB_OWNER;
   if (!owner) { console.error('Error: GITHUB_OWNER not set'); process.exit(1); }
@@ -188,6 +217,7 @@ async function plainStart(
   const orchestrator = new Orchestrator();
   const state = await orchestrator.runPhase1(instruction, owner, repoName, {
     projectMode: options.projectMode || 'new',
+    sourceIssue: options.sourceIssue,
   });
 
   console.log(`\nTasks created: ${state.tasks.length}`);
@@ -272,6 +302,7 @@ async function uiEntry(args: string[]): Promise<void> {
     let ownerOverride: string | undefined;
     let autoPhase2 = false;
     let retryFailed = false;
+    let issueNumber: number | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if (args[i] === '--instruction'      && i + 1 < args.length) { instruction     = args[++i]; }
@@ -284,22 +315,31 @@ async function uiEntry(args: string[]): Promise<void> {
       }
       else if (args[i] === '--auto')         { autoPhase2 = true; }
       else if (args[i] === '--retry-failed') { retryFailed = true; }
+      else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumber = parseIssueNumber(args[++i]); }
     }
 
     if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
-    if (!instruction || !repoName) {
-      console.error('Error: instruction and repo-name are required'); process.exit(1);
+    if (!repoName || (!instruction && !issueNumber)) {
+      console.error('Error: instruction or issue-number, and repo-name are required'); process.exit(1);
     }
 
     const owner = ownerOverride || process.env.GITHUB_OWNER;
     if (!owner) { console.error('Error: GITHUB_OWNER not set'); process.exit(1); }
+
+    let sourceIssue: SourceIssue | undefined;
+    if (issueNumber) {
+      await ensureGhAuth();
+      const issueInput = await loadIssueInstruction(owner, repoName, issueNumber, instruction);
+      instruction = issueInput.instruction;
+      sourceIssue = issueInput.sourceIssue;
+    }
 
     const projectMode = args[0] === 'modify' ? 'modify' : 'new';
     const orchestrator = new Orchestrator();
 
     await ensureGhAuth();
     await launchInk(async () => {
-      await orchestrator.runPhase1(instruction!, owner, repoName!, { projectMode });
+      await orchestrator.runPhase1(instruction!, owner, repoName!, { projectMode, sourceIssue });
       if (autoPhase2) await orchestrator.runPhase2(retryFailed);
     });
     return;
@@ -364,6 +404,7 @@ async function uiEntry(args: string[]): Promise<void> {
   }
 
   // new or phase1only
+  await ensureGhAuth();
   const wizard = await showRequestWizard();
   process.env.PLANNING_CLAUDE_MODEL = wizard.planningModel;
   process.env.IMPLEMENTATION_CLAUDE_MODEL = wizard.implModel;
@@ -372,12 +413,12 @@ async function uiEntry(args: string[]): Promise<void> {
   process.env.FALLBACK_LLM_PROVIDER = wizard.fallbackProvider;
   applyWizardCodexOptions(wizard);
 
-  await ensureGhAuth();
   const orchestrator = new Orchestrator();
 
   await launchInk(async () => {
     await orchestrator.runPhase1(wizard.instruction, wizard.owner, wizard.repoName, {
       projectMode: wizard.projectMode,
+      sourceIssue: wizard.sourceIssue,
     });
     if (wizard.phaseMode === 'phase1+2') {
       await orchestrator.runPhase2(false);
@@ -412,6 +453,7 @@ async function main(): Promise<void> {
         let ownerOverride: string | undefined;
         let autoPhase2 = false;
         let retryFailed = false;
+        let issueNumber: number | undefined;
 
         for (let i = 1; i < args.length; i++) {
           if (args[i] === '--instruction'       && i + 1 < args.length) { instruction     = args[++i]; }
@@ -424,12 +466,22 @@ async function main(): Promise<void> {
           }
           else if (args[i] === '--auto')          { autoPhase2 = true; }
           else if (args[i] === '--retry-failed')  { retryFailed = true; }
+          else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumber = parseIssueNumber(args[++i]); }
         }
         if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
-        if (!instruction || !repoName) { console.error('instruction and repo-name are required'); process.exit(1); }
-        await plainStart(instruction, repoName, autoPhase2, retryFailed, {
+        if (!repoName || (!instruction && !issueNumber)) { console.error('instruction or issue-number, and repo-name are required'); process.exit(1); }
+        let sourceIssue: SourceIssue | undefined;
+        if (issueNumber) {
+          const owner = ownerOverride || process.env.GITHUB_OWNER;
+          if (!owner) { console.error('GITHUB_OWNER is required for issue-number'); process.exit(1); }
+          const issueInput = await loadIssueInstruction(owner, repoName, issueNumber, instruction);
+          instruction = issueInput.instruction;
+          sourceIssue = issueInput.sourceIssue;
+        }
+        await plainStart(instruction!, repoName, autoPhase2, retryFailed, {
           projectMode: args[0] === 'modify' ? 'modify' : 'new',
           ownerOverride,
+          sourceIssue,
         });
       } else if (args[0] === 'phase2') {
         await plainPhase2(args.includes('--retry-failed') || args.includes('--loop-until-limit'), {

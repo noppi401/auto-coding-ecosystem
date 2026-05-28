@@ -24,6 +24,7 @@ export class StateManager {
     options: {
       projectMode?: ProjectState['projectMode'];
       repositoryContext?: string;
+      sourceIssue?: ProjectState['sourceIssue'];
     } = {}
   ): Promise<ProjectState> {
     const state: ProjectState = {
@@ -34,6 +35,7 @@ export class StateManager {
       githubOwner: owner,
       githubRepo: repo,
       repositoryContext: options.repositoryContext,
+      sourceIssue: options.sourceIssue,
       requirementsDoc: '',
       designDoc: '',
       tasks: [],
