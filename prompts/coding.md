@@ -49,10 +49,13 @@ Use `contentBase64` for file contents. Encode each complete file as UTF-8 base64
 
 ## Special Instructions
 
-- Do NOT write placeholder code like "..."
-- Every file must be complete and runnable
-- Include all necessary imports
-- Create test files with Jest syntax and at least one test case
+- **NEVER use TODO, FIXME, stub, placeholder, or "not implemented" patterns** — every function body must be complete
+- **NEVER leave a method body empty or returning a dummy value** — implement the full logic
+- Every file must be complete and runnable as-is, without any further edits
+- Include all necessary imports — do not assume any symbol is available without importing it
+- **Ensure interface compatibility**: when modifying an existing codebase, exported types and function signatures must match what callers expect; read adjacent files before writing
+- Create test files with Jest syntax; tests must verify actual behavior (not just `expect(true).toBe(true)`)
+- Tests must be executable: include all required dependencies and setup/teardown
 - PR body should explain what was done and why
 - Use ES modules (import/export)
 - Target TypeScript with strict type checking

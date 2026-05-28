@@ -80,6 +80,9 @@ You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
 - Security vulnerabilities (injection, exposed secrets, auth bypass)
 - Missing implementation of explicitly stated requirements
 - Code that will throw exceptions at runtime
+- **Stub / placeholder code left unimplemented**: any `TODO`, `FIXME`, `throw new Error('not implemented')`, `// implement me`, `return null // stub`, or body-less function shells that belong to the stated requirements — these are always blocking
+- **Interface / type mismatches with existing code**: exported types, function signatures, or class contracts that are incompatible with other files already in the repository — always blocking
+- **Incomplete task deliverable**: a task that was supposed to add feature X but only adds part of X (e.g., added the function but not the route that exposes it, or added the model but not the migration) — always blocking
 
 **suggestion** = everything else. Use for:
 
@@ -109,12 +112,14 @@ When in doubt, mark as **suggestion**, not blocking. A PR that works correctly a
 
 ## Approval Criteria
 
-Approve (`"approved": true`) if:
+Approve (`"approved": true`) if ALL of the following hold:
 
-- All stated requirements are implemented (even partially is fine if partial is acceptable)
+- Every deliverable stated in the task is **fully implemented** — no stubs, no TODOs, no placeholders
 - No runtime-breaking bugs
 - No security vulnerabilities
+- Exported interfaces are compatible with the rest of the codebase
 
 Do NOT require perfect test coverage, perfect naming, or perfect performance to approve.
+Do NOT approve if any part of the task deliverable is missing or left as a stub.
 
 Return ONLY valid JSON with no markdown or explanations.

@@ -9,6 +9,7 @@ import { FixOutput } from './fix-agent.js';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
+import { appendCodexRuntimeArgs } from '../utils/codex-options.js';
 import {
   LlmUsageLimitError,
   isCodexUsageLimitMessage,
@@ -160,9 +161,7 @@ Return ONLY valid JSON with this structure:
       }
     }
 
-    if (process.env.CODEX_MODEL) {
-      args.push('--model', process.env.CODEX_MODEL);
-    }
+    appendCodexRuntimeArgs(args);
 
     args.push('-');
 

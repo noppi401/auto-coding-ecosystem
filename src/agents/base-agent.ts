@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
+import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import {
   LlmUsageLimitError,
   isClaudeUsageLimitMessage,
@@ -130,11 +131,14 @@ export class BaseAgent {
   ): Promise<string> {
     const localEnabled = Boolean(this.getLocalLlmUrl() && this.getLocalLlmModel());
     switch (provider) {
-      case 'codex':
+      case 'codex': {
+        const codexOptions = getCodexRuntimeOptions();
         logger.info(`${this.agentName} invoking Codex...`, {
-          model: process.env.CODEX_MODEL || 'default',
+          model: codexOptions.model || 'default',
+          intelligence: codexOptions.intelligence || 'default',
         });
         return await this.invokeCodex(userMessage);
+      }
       case 'gemini':
         return await this.invokeGemini(userMessage);
       case 'local':
@@ -232,9 +236,7 @@ export class BaseAgent {
       outputFile,
     ];
 
-    if (process.env.CODEX_MODEL) {
-      args.push('--model', process.env.CODEX_MODEL);
-    }
+    appendCodexRuntimeArgs(args);
 
     args.push('-');
 

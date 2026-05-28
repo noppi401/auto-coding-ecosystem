@@ -380,6 +380,9 @@ export class Orchestrator {
       const diffUnchangedAfterFix =
         iteration > 1 && lastFixInputDiff === prDiff;
 
+      // Build / test check (deterministic, runs before LLM review)
+      const buildComments = await this._runBuildCheck(githubAgent, state, task);
+
       // Review
       const reviewResult =
         iteration === 1
@@ -397,6 +400,12 @@ export class Orchestrator {
         state,
         reviewResult
       );
+
+      // Prepend build/test failures as blocking comments
+      if (buildComments.length > 0) {
+        combinedReviewResult.comments = [...buildComments, ...combinedReviewResult.comments];
+        combinedReviewResult.approved = false;
+      }
       const blockingComments = this.getBlockingComments(combinedReviewResult);
       const suggestionComments = this.getSuggestionComments(combinedReviewResult);
       const shouldMerge =
@@ -625,6 +634,120 @@ export class Orchestrator {
       task.issueNumber = issue.issueNumber;
       task.issueUrl = issue.issueUrl;
     }
+  }
+
+  private async _runBuildCheck(
+    githubAgent: GitHubAgent,
+    state: ProjectState,
+    task: Task
+  ): Promise<ReviewComment[]> {
+    if (process.env.BUILD_CHECK_ENABLED === 'false') {
+      return [];
+    }
+
+    const comments: ReviewComment[] = [];
+
+    // TypeScript type check
+    const tsconfigFiles = await githubAgent.readFiles(
+      state.githubOwner, state.githubRepo, task.branchName, ['tsconfig.json']
+    );
+    if (tsconfigFiles['tsconfig.json']) {
+      logger.info('Running TypeScript type check...');
+      const tscResult = await githubAgent.runCommandInWorktree(
+        state.githubOwner, state.githubRepo, task.branchName,
+        'npx', ['tsc', '--noEmit', '--pretty', 'false'], 90000
+      );
+
+      if (tscResult.timedOut) {
+        logger.warn('TypeScript type check timed out');
+        comments.push({
+          path: 'tsconfig.json',
+          line: 1,
+          body: '**ビルドエラー（TypeScript型チェックタイムアウト）**\n\n`npx tsc --noEmit` がタイムアウトしました。型チェックが完了する状態にしてからマージしてください。',
+          severity: 'blocking',
+        });
+      } else if (tscResult.exitCode !== 0 && tscResult.exitCode !== -1) {
+        const errorOutput = (tscResult.stdout + '\n' + tscResult.stderr).trim();
+        const lineCount = errorOutput.split('\n').length;
+        logger.warn('TypeScript type check failed', `${lineCount} lines of errors`);
+        comments.push({
+          path: 'tsconfig.json',
+          line: 1,
+          body: `**ビルドエラー（TypeScript型チェック失敗）**\n\n\`npx tsc --noEmit\` が失敗しました。型エラーをすべて修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+          severity: 'blocking',
+        });
+      } else if (tscResult.exitCode === 0) {
+        logger.info('TypeScript type check passed');
+      }
+    }
+
+    // npm test (only if node_modules is present)
+    const pkgFiles = await githubAgent.readFiles(
+      state.githubOwner, state.githubRepo, task.branchName, ['package.json']
+    );
+    if (pkgFiles['package.json']) {
+      let pkg: any;
+      try { pkg = JSON.parse(pkgFiles['package.json']); } catch { pkg = null; }
+
+      const testScript: string | undefined = pkg?.scripts?.test;
+      const hasRealTestScript = Boolean(
+        testScript && !testScript.includes('no test specified') && !testScript.includes('exit 1')
+      );
+
+      if (hasRealTestScript) {
+        const hasNodeModules = await githubAgent.pathExistsInWorktree(
+          state.githubOwner, state.githubRepo, task.branchName, 'node_modules'
+        );
+
+        if (!hasNodeModules) {
+          logger.info('node_modules not found; running npm install before test...');
+          const installResult = await githubAgent.runCommandInWorktree(
+            state.githubOwner, state.githubRepo, task.branchName,
+            'npm', ['install', '--no-package-lock'], 180000
+          );
+          if (installResult.exitCode !== 0) {
+            const errorOutput = (installResult.stdout + '\n' + installResult.stderr).trim();
+            logger.warn('npm install failed; blocking test execution');
+            comments.push({
+              path: 'package.json',
+              line: 1,
+              body: `**テスト準備失敗**\n\n\`npm install --no-package-lock\` が失敗したため、\`npm test\` を実行できませんでした。依存関係の問題を修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+              severity: 'blocking',
+            });
+            return comments;
+          }
+        }
+
+        logger.info('Running npm test...');
+        const testResult = await githubAgent.runCommandInWorktree(
+          state.githubOwner, state.githubRepo, task.branchName,
+          'npm', ['test'], 120000
+        );
+
+        if (testResult.timedOut) {
+          logger.warn('npm test timed out');
+          comments.push({
+            path: 'package.json',
+            line: 1,
+            body: '**テスト失敗（タイムアウト）**\n\n`npm test` がタイムアウトしました。テストが完了する状態にしてからマージしてください。',
+            severity: 'blocking',
+          });
+        } else if (testResult.exitCode !== 0) {
+          const errorOutput = (testResult.stdout + '\n' + testResult.stderr).trim();
+          logger.warn('npm test failed', `exit code: ${testResult.exitCode}`);
+          comments.push({
+            path: 'package.json',
+            line: 1,
+            body: `**テスト失敗**\n\n\`npm test\` が失敗しました。マージ前にすべてのテストを通してください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+            severity: 'blocking',
+          });
+        } else {
+          logger.info('npm test passed');
+        }
+      }
+    }
+
+    return comments;
   }
 
   private getSuggestionComments(reviewResult: ReviewResult): ReviewComment[] {

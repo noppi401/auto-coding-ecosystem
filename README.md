@@ -130,11 +130,21 @@ npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
 npm run dev -- phase2 --impl-model claude-sonnet-4-6
 ```
 
+Codex を指定する場合は、モデルとインテリジェンスを同時に指定できます。
+
+```bash
+npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --provider codex --codex-model gpt-5.5 --codex-intelligence high
+```
+
 | オプション | 対応する環境変数 | 説明 |
 | --- | --- | --- |
+| `--provider <claude\|codex\|gemini>` | `PLANNING_LLM_PROVIDER` / `IMPLEMENTATION_LLM_PROVIDER` | planning と implementation の provider を一括変更 |
+| `--fallback-provider <claude\|codex\|gemini>` | `FALLBACK_LLM_PROVIDER` | primary provider の上限時に使う provider |
 | `--claude-model <id>` | `PLANNING_CLAUDE_MODEL` / `IMPLEMENTATION_CLAUDE_MODEL` | planning と implementation の両方を一括変更 |
 | `--planning-model <id>` | `PLANNING_CLAUDE_MODEL` | 要件、設計、タスク分解側のモデル |
 | `--impl-model <id>` | `IMPLEMENTATION_CLAUDE_MODEL` | CodingAgent / FixAgent 側のモデル |
+| `--codex-model <id>` | `CODEX_MODEL` | Codex CLI に渡すモデル |
+| `--codex-intelligence <low\|medium\|high\|xhigh>` | `CODEX_INTELLIGENCE` | Codex CLI の `model_reasoning_effort` |
 
 ## 主な環境変数
 
@@ -150,6 +160,8 @@ npm run dev -- phase2 --impl-model claude-sonnet-4-6
 | `IMPLEMENTATION_CLAUDE_MODEL` | `claude-sonnet-4-6` | CodingAgent / FixAgent 専用モデル |
 | `GEMINI_API_KEY` | なし | Gemini API キー |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex 独立レビューを有効化するか |
+| `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
+| `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | エージェントコマンドのタイムアウト |
 | `REPO_CONTEXT_MAX_FILES` | `80` | 既存 repo 読み取り時の最大ファイル数 |

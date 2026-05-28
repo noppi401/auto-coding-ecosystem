@@ -11,14 +11,21 @@ import { App } from './ui/App.js';
 import { showHomeMenu } from './ui/prompts/homeMenu.js';
 import { showRequestWizard, showModelSelectWizard } from './ui/prompts/requestWizard.js';
 import { ensureGhAuth } from './ui/prompts/authPrompt.js';
+import { parseCodexIntelligence } from './utils/codex-options.js';
 
 config({ path: resolve('.env') });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 type LimitProvider = 'claude' | 'codex' | 'gemini' | 'all';
+type LlmProviderOption = Exclude<LimitProvider, 'all'>;
 
-function applyModelOptions(args: string[]): void {
+function parseLlmProviderOption(value: string): LlmProviderOption {
+  if (value === 'claude' || value === 'codex' || value === 'gemini') return value;
+  throw new Error('provider must be one of: claude, codex, gemini');
+}
+
+function applyLlmOptions(args: string[]): void {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--claude-model' && i + 1 < args.length) {
       process.env.PLANNING_CLAUDE_MODEL = args[i + 1];
@@ -30,6 +37,47 @@ function applyModelOptions(args: string[]): void {
     } else if (args[i] === '--impl-model' && i + 1 < args.length) {
       process.env.IMPLEMENTATION_CLAUDE_MODEL = args[i + 1];
       i++;
+    } else if (args[i] === '--codex-model' && i + 1 < args.length) {
+      process.env.CODEX_MODEL = args[i + 1];
+      i++;
+    } else if (
+      (args[i] === '--codex-intelligence' || args[i] === '--codex-reasoning-effort') &&
+      i + 1 < args.length
+    ) {
+      process.env.CODEX_INTELLIGENCE = parseCodexIntelligence(args[i + 1]);
+      i++;
+    } else if (
+      (args[i] === '--provider' || args[i] === '--primary-provider') &&
+      i + 1 < args.length
+    ) {
+      const provider = parseLlmProviderOption(args[i + 1]);
+      process.env.PLANNING_LLM_PROVIDER = provider;
+      process.env.IMPLEMENTATION_LLM_PROVIDER = provider;
+      i++;
+    } else if (args[i] === '--fallback-provider' && i + 1 < args.length) {
+      process.env.FALLBACK_LLM_PROVIDER = parseLlmProviderOption(args[i + 1]);
+      i++;
+    }
+  }
+}
+
+function applyWizardCodexOptions(
+  wizard: Awaited<ReturnType<typeof showRequestWizard>>
+): void {
+  if (wizard.codexModel !== undefined) {
+    if (wizard.codexModel) {
+      process.env.CODEX_MODEL = wizard.codexModel;
+    } else {
+      delete process.env.CODEX_MODEL;
+    }
+  }
+
+  if (wizard.codexIntelligence !== undefined) {
+    if (wizard.codexIntelligence === 'config') {
+      delete process.env.CODEX_INTELLIGENCE;
+      delete process.env.CODEX_MODEL_REASONING_EFFORT;
+    } else {
+      process.env.CODEX_INTELLIGENCE = wizard.codexIntelligence;
     }
   }
 }
@@ -322,6 +370,7 @@ async function uiEntry(args: string[]): Promise<void> {
   process.env.PLANNING_LLM_PROVIDER = wizard.primaryProvider;
   process.env.IMPLEMENTATION_LLM_PROVIDER = wizard.primaryProvider;
   process.env.FALLBACK_LLM_PROVIDER = wizard.fallbackProvider;
+  applyWizardCodexOptions(wizard);
 
   await ensureGhAuth();
   const orchestrator = new Orchestrator();
@@ -342,7 +391,7 @@ async function main(): Promise<void> {
   const rawArgs = process.argv.slice(2);
   // strip standalone flags so args[0] is always the command (or absent)
   const args = rawArgs.filter((a) => a !== '--plain');
-  applyModelOptions(args);
+  applyLlmOptions(args);
 
   const plain = isPlainMode();
 

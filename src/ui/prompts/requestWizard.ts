@@ -10,10 +10,12 @@ import { execSync } from 'child_process';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import type { CodexIntelligence } from '../../utils/codex-options.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
 export type ProjectMode = 'new' | 'modify';
 export type LlmProviderChoice = 'claude' | 'codex' | 'gemini';
+export type CodexIntelligenceChoice = 'config' | CodexIntelligence;
 
 export interface WizardResult {
   instruction: string;
@@ -26,6 +28,8 @@ export interface WizardResult {
   retryFailed: boolean;
   primaryProvider: LlmProviderChoice;
   fallbackProvider: LlmProviderChoice;
+  codexModel?: string;
+  codexIntelligence?: CodexIntelligenceChoice;
 }
 
 async function detectOwner(): Promise<string> {
@@ -109,6 +113,30 @@ const MODEL_OPTIONS = [
   { value: 'claude-sonnet-4-6',         label: 'claude-sonnet-4',  hint: 'バランス（推奨）' },
   { value: 'claude-haiku-4-5-20251001', label: 'claude-haiku-4.5', hint: '高速・低コスト' },
 ];
+
+const CODEX_INTELLIGENCE_OPTIONS: Array<{
+  value: CodexIntelligenceChoice;
+  label: string;
+  hint: string;
+}> = [
+  { value: 'config', label: '既定値', hint: '~/.codex/config.toml または Codex CLI の既定値を使う' },
+  { value: 'low',    label: 'low',    hint: '高速・軽めの推論' },
+  { value: 'medium', label: 'medium', hint: '速度と推論のバランス' },
+  { value: 'high',   label: 'high',   hint: '複雑な実装向け' },
+  { value: 'xhigh',  label: 'xhigh',  hint: '最大推論' },
+];
+
+function getDefaultCodexIntelligence(
+  defaults: Partial<WizardResult>
+): CodexIntelligenceChoice {
+  const raw =
+    defaults.codexIntelligence ||
+    process.env.CODEX_INTELLIGENCE ||
+    process.env.CODEX_MODEL_REASONING_EFFORT;
+  return CODEX_INTELLIGENCE_OPTIONS.some((option) => option.value === raw)
+    ? raw as CodexIntelligenceChoice
+    : 'config';
+}
 
 export async function showRequestWizard(
   defaults: Partial<WizardResult> = {}
@@ -244,20 +272,50 @@ export async function showRequestWizard(
   if (isCancel(fallbackProviderRaw)) { outro('中止'); process.exit(0); }
   const fallbackProvider = fallbackProviderRaw as LlmProviderChoice;
 
-  // Claude model selection (applies when Claude is primary or fallback)
-  const planningModel = await select({
-    message: 'Planning モデル (Claude使用時)',
-    options: MODEL_OPTIONS,
-    initialValue: defaults.planningModel ?? 'claude-sonnet-4-6',
-  });
-  if (isCancel(planningModel)) { outro('中止'); process.exit(0); }
+  const usesClaude = primaryProvider === 'claude' || fallbackProvider === 'claude';
+  const usesCodex = primaryProvider === 'codex' || fallbackProvider === 'codex';
 
-  const implModel = await select({
-    message: 'Implementation モデル (Claude使用時)',
-    options: MODEL_OPTIONS,
-    initialValue: defaults.implModel ?? 'claude-sonnet-4-6',
-  });
-  if (isCancel(implModel)) { outro('中止'); process.exit(0); }
+  let planningModel = defaults.planningModel ?? 'claude-sonnet-4-6';
+  let implModel = defaults.implModel ?? 'claude-sonnet-4-6';
+
+  if (usesClaude) {
+    const planningModelRaw = await select({
+      message: 'Planning モデル (Claude使用時)',
+      options: MODEL_OPTIONS,
+      initialValue: planningModel,
+    });
+    if (isCancel(planningModelRaw)) { outro('中止'); process.exit(0); }
+    planningModel = planningModelRaw as string;
+
+    const implModelRaw = await select({
+      message: 'Implementation モデル (Claude使用時)',
+      options: MODEL_OPTIONS,
+      initialValue: implModel,
+    });
+    if (isCancel(implModelRaw)) { outro('中止'); process.exit(0); }
+    implModel = implModelRaw as string;
+  }
+
+  let codexModel: string | undefined;
+  let codexIntelligence: CodexIntelligenceChoice | undefined;
+
+  if (usesCodex) {
+    const codexModelRaw = await text({
+      message: 'Codex モデル (空欄なら Codex CLI の既定値)',
+      placeholder: 'gpt-5.5',
+      initialValue: defaults.codexModel ?? process.env.CODEX_MODEL ?? '',
+    });
+    if (isCancel(codexModelRaw)) { outro('中止'); process.exit(0); }
+    codexModel = (codexModelRaw as string).trim();
+
+    const codexIntelligenceRaw = await select({
+      message: 'Codex インテリジェンス',
+      options: CODEX_INTELLIGENCE_OPTIONS,
+      initialValue: getDefaultCodexIntelligence(defaults),
+    });
+    if (isCancel(codexIntelligenceRaw)) { outro('中止'); process.exit(0); }
+    codexIntelligence = codexIntelligenceRaw as CodexIntelligenceChoice;
+  }
 
   clackLog.info(
     `準備完了 · ${owner}/${repoName} · ${phaseMode as string} · ${primaryProvider}→${fallbackProvider}`
@@ -274,6 +332,8 @@ export async function showRequestWizard(
     retryFailed: false,
     primaryProvider,
     fallbackProvider,
+    codexModel,
+    codexIntelligence,
   };
 }
 

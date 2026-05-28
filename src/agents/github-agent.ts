@@ -330,6 +330,60 @@ export class GitHubAgent {
     await this.exec('gh', args);
   }
 
+  async runCommandInWorktree(
+    owner: string,
+    repo: string,
+    branch: string,
+    command: string,
+    args: string[],
+    timeoutMs: number = 60000
+  ): Promise<{ stdout: string; stderr: string; exitCode: number; timedOut: boolean }> {
+    const worktree = this.getWorktreePath(owner, repo, branch);
+    if (!(await this.pathExists(worktree))) {
+      return { stdout: '', stderr: `Worktree not found: ${worktree}`, exitCode: -1, timedOut: false };
+    }
+
+    try {
+      const resolvedCommand = this.resolvePlatformCommand(command, args);
+      const { stdout, stderr } = await execFileAsync(resolvedCommand.command, resolvedCommand.args, {
+        cwd: worktree,
+        env: process.env,
+        maxBuffer: 5 * 1024 * 1024,
+        timeout: timeoutMs,
+      });
+      return { stdout: stdout || '', stderr: stderr || '', exitCode: 0, timedOut: false };
+    } catch (err: any) {
+      return {
+        stdout: err?.stdout || '',
+        stderr: err?.stderr || err?.message || '',
+        exitCode: typeof err?.code === 'number' ? err.code : 1,
+        timedOut: Boolean(err?.killed),
+      };
+    }
+  }
+
+  async pathExistsInWorktree(owner: string, repo: string, branch: string, relativePath: string): Promise<boolean> {
+    const worktree = this.getWorktreePath(owner, repo, branch);
+    return this.pathExists(join(worktree, relativePath));
+  }
+
+  private resolvePlatformCommand(command: string, args: string[]): { command: string; args: string[] } {
+    if (
+      process.platform !== 'win32' ||
+      command.endsWith('.exe') ||
+      !['npm', 'npx', 'pnpm', 'yarn', 'npm.cmd', 'npx.cmd', 'pnpm.cmd', 'yarn.cmd'].includes(command)
+    ) {
+      return { command, args };
+    }
+
+    const cmdCommand = command.endsWith('.cmd') ? command : `${command}.cmd`;
+
+    return {
+      command: process.env.ComSpec || 'cmd.exe',
+      args: ['/d', '/s', '/c', cmdCommand, ...args],
+    };
+  }
+
   async getPrDiff(owner: string, repo: string, prNumber: number): Promise<string> {
     return await this.exec('gh', [
       'pr',
