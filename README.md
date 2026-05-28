@@ -64,7 +64,7 @@ npm run dev -- modify --target-repo owner/repo --instruction-file ./change-reque
 npm run dev -- modify --target-repo existing-app --instruction-file ./change-request.txt --auto
 ```
 
-対話モードで既存リポジトリを選択すると、open Issue の一覧から実行対象を選べます。CLI で Issue を直接指定する場合:
+対話モードの `Run from Issue` では、open Issue の一覧から実行対象を選べます。既存 Issue を選んだ場合は追加のタスク分解 Issue を作らず、その Issue 自体を実行タスクとして扱います。CLI で Issue を直接指定する場合:
 
 ```bash
 npm run dev -- modify --target-repo owner/repo --issue-number 123 --auto

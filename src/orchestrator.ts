@@ -1,4 +1,5 @@
 import { promises as fs } from 'fs';
+import { randomUUID } from 'crypto';
 import { dirname } from 'path';
 import { StateManager } from './state/manager.js';
 import { ProjectState, ReviewComment, ReviewResult, SourceIssue, Task } from './state/types.js';
@@ -78,6 +79,16 @@ export class Orchestrator {
       }
     } else {
       logger.info('Using existing repository for modification', `${owner}/${repo}`);
+    }
+
+    if (options.sourceIssue) {
+      return await this._runIssueOnlyPlanning(
+        options.sourceIssue,
+        instruction,
+        owner,
+        repo,
+        repositoryContext
+      );
     }
 
     // Phase 1a+1b: Requirements Generation + Validation Loop
@@ -608,6 +619,104 @@ export class Orchestrator {
     }
   }
 
+  private async _runIssueOnlyPlanning(
+    sourceIssue: SourceIssue,
+    instruction: string,
+    owner: string,
+    repo: string,
+    repositoryContext?: string
+  ): Promise<ProjectState> {
+    logger.section('ISSUE PLANNING: CHECK EXISTING ISSUE');
+
+    const requirementsDoc = this._buildSourceIssueRequirementsDoc(sourceIssue, instruction);
+    const designDoc = this._buildSourceIssueDesignDoc(sourceIssue, repositoryContext);
+
+    await this._saveMarkdown('.ecosystem/requirements.md', requirementsDoc);
+    await this.stateManager.updateRequirementsDoc(requirementsDoc);
+    await this._saveMarkdown('.ecosystem/design.md', designDoc);
+    await this.stateManager.updateDesignDoc(designDoc);
+
+    const now = new Date().toISOString();
+    const task: Task = {
+      id: randomUUID(),
+      title: sourceIssue.title,
+      summary: [
+        `既存 Issue #${sourceIssue.number} を実装します。`,
+        sourceIssue.body.trim() || '(Issue body is empty)',
+      ].join('\n\n'),
+      branchName: `feat/issue-${sourceIssue.number}-${this._slugify(sourceIssue.title)}`,
+      targetFiles: [],
+      status: 'pending',
+      issueNumber: sourceIssue.number,
+      issueUrl: sourceIssue.url,
+      reviewIteration: 0,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await this.stateManager.setTasks([task]);
+    const currentState = await this.stateManager.load();
+    if (!currentState) throw new Error('Failed to load state');
+
+    logger.info('Existing issue accepted as executable task', {
+      issue: `#${sourceIssue.number}`,
+      title: sourceIssue.title,
+    });
+
+    return currentState;
+  }
+
+  private _buildSourceIssueRequirementsDoc(sourceIssue: SourceIssue, instruction: string): string {
+    const labels = sourceIssue.labels.length > 0 ? sourceIssue.labels.join(', ') : 'なし';
+    const body = sourceIssue.body.trim() || '(本文なし)';
+
+    return `# 既存 Issue 内容確認
+
+## 対象 Issue
+- Issue: #${sourceIssue.number}
+- Title: ${sourceIssue.title}
+- URL: ${sourceIssue.url}
+- Labels: ${labels}
+
+## Issue 本文
+${body}
+
+## 実行判断
+- 既存 Issue を実行単位として扱う
+- 追加のタスク分解 Issue は作成しない
+- 実装 PR はこの Issue に紐づける
+
+## 入力全文
+${instruction}
+`;
+  }
+
+  private _buildSourceIssueDesignDoc(sourceIssue: SourceIssue, repositoryContext?: string): string {
+    return `# 既存 Issue 実装メモ
+
+## 実装対象
+GitHub Issue #${sourceIssue.number}: ${sourceIssue.title}
+
+## 実装方針
+- Issue 本文を受け入れ条件として扱う
+- 既存コードを読んで、最小限の変更で Issue を解決する
+- 変更後は既存の build/test チェックで検証する
+
+## リポジトリコンテキスト
+${repositoryContext || '(repository context was not loaded)'}
+`;
+  }
+
+  private _slugify(value: string): string {
+    const slug = value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48);
+
+    return slug || 'task';
+  }
+
   private getBlockingComments(reviewResult: ReviewResult): ReviewComment[] {
     return reviewResult.comments.filter(
       (comment) => comment.severity === 'blocking'
@@ -681,6 +790,13 @@ export class Orchestrator {
 
   private async _closeSourceIssueIfNeeded(state: ProjectState): Promise<void> {
     if (!state.sourceIssue) {
+      return;
+    }
+
+    const sourceIssueHandledAsTask = state.tasks.some(
+      (task) => task.issueNumber === state.sourceIssue?.number
+    );
+    if (sourceIssueHandledAsTask) {
       return;
     }
 

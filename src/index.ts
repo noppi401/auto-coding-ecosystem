@@ -403,9 +403,15 @@ async function uiEntry(args: string[]): Promise<void> {
     return;
   }
 
-  // new or phase1only
+  // new / issue / phase1only
   await ensureGhAuth();
-  const wizard = await showRequestWizard();
+  const wizard = await showRequestWizard(
+    choice === 'issue' ? { projectMode: 'modify' } : {},
+    {
+      forceProjectMode: choice === 'issue' ? 'modify' : undefined,
+      defaultPhaseMode: choice === 'phase1only' ? 'phase1only' : undefined,
+    }
+  );
   process.env.PLANNING_CLAUDE_MODEL = wizard.planningModel;
   process.env.IMPLEMENTATION_CLAUDE_MODEL = wizard.implModel;
   process.env.PLANNING_LLM_PROVIDER = wizard.primaryProvider;

@@ -1,7 +1,7 @@
 import { intro, select, isCancel, outro } from '@clack/prompts';
 import { StateManager } from '../../state/manager.js';
 
-export type HomeChoice = 'new' | 'resume' | 'phase1only' | 'status' | 'quit';
+export type HomeChoice = 'new' | 'issue' | 'resume' | 'phase1only' | 'status' | 'quit';
 
 export async function showHomeMenu(): Promise<HomeChoice> {
   intro('▲ Auto Coding Ecosystem');
@@ -16,6 +16,11 @@ export async function showHomeMenu(): Promise<HomeChoice> {
       value: 'new' as HomeChoice,
       label: 'New request',
       hint: '新しい依頼を作成',
+    },
+    {
+      value: 'issue' as HomeChoice,
+      label: 'Run from Issue',
+      hint: '既存リポジトリの open Issue を選んで実行',
     },
     ...(hasState ? [{
       value: 'resume' as HomeChoice,

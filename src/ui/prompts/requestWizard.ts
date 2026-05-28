@@ -36,6 +36,11 @@ export interface WizardResult {
   sourceIssue?: SourceIssue;
 }
 
+export interface RequestWizardOptions {
+  forceProjectMode?: ProjectMode;
+  defaultPhaseMode?: PhaseMode;
+}
+
 async function detectOwner(): Promise<string> {
   try {
     return execSync('gh api user --jq .login', { stdio: 'pipe' }).toString().trim();
@@ -199,19 +204,25 @@ async function selectExistingIssue(owner: string, repoName: string): Promise<Sou
 }
 
 export async function showRequestWizard(
-  defaults: Partial<WizardResult> = {}
+  defaults: Partial<WizardResult> = {},
+  options: RequestWizardOptions = {}
 ): Promise<WizardResult> {
   // Project mode
-  const projectModeRaw = await select({
-    message: 'プロジェクトの種類',
-    options: [
-      { value: 'new',    label: '新規リポジトリを作成する', hint: '新しいリポジトリを作成して実装' },
-      { value: 'modify', label: '既存リポジトリを改修する', hint: '既存のリポジトリに機能追加・修正' },
-    ],
-    initialValue: defaults.projectMode ?? 'new',
-  });
-  if (isCancel(projectModeRaw)) { outro('中止'); process.exit(0); }
-  const projectMode = projectModeRaw as ProjectMode;
+  let projectMode: ProjectMode;
+  if (options.forceProjectMode) {
+    projectMode = options.forceProjectMode;
+  } else {
+    const projectModeRaw = await select({
+      message: 'プロジェクトの種類',
+      options: [
+        { value: 'new',    label: '新規リポジトリを作成する', hint: '新しいリポジトリを作成して実装' },
+        { value: 'modify', label: '既存リポジトリを改修する', hint: '既存のリポジトリに機能追加・修正' },
+      ],
+      initialValue: defaults.projectMode ?? 'new',
+    });
+    if (isCancel(projectModeRaw)) { outro('中止'); process.exit(0); }
+    projectMode = projectModeRaw as ProjectMode;
+  }
 
   // Detect GitHub owner
   const s = spinner();
@@ -306,13 +317,21 @@ export async function showRequestWizard(
   }
 
   // Phase mode
+  const phaseOptions = sourceIssue
+    ? [
+        { value: 'phase1+2',   label: 'Issue確認 + 実装', hint: '選択した Issue をそのまま実行' },
+        { value: 'phase1only', label: 'Issue確認のみ',    hint: '内容確認ドキュメントと実行タスクを作成して停止' },
+      ]
+    : [
+        { value: 'phase1+2',   label: 'Phase 1 + 2  (計画→実装まで自動)', hint: '推奨' },
+        { value: 'phase1only', label: 'Phase 1 only  (計画のみ・Issue起票)',  hint: ''   },
+        { value: 'phase2only', label: 'Phase 2 only  (既存の計画から再開)',   hint: ''   },
+      ];
+
   const phaseMode = await select({
     message: 'どのフェーズを実行しますか？',
-    options: [
-      { value: 'phase1+2',   label: 'Phase 1 + 2  (計画→実装まで自動)', hint: '推奨' },
-      { value: 'phase1only', label: 'Phase 1 only  (計画のみ・Issue起票)',  hint: ''   },
-      { value: 'phase2only', label: 'Phase 2 only  (既存の計画から再開)',   hint: ''   },
-    ],
+    options: phaseOptions,
+    initialValue: options.defaultPhaseMode ?? defaults.phaseMode ?? 'phase1+2',
   });
   if (isCancel(phaseMode)) { outro('中止'); process.exit(0); }
 
