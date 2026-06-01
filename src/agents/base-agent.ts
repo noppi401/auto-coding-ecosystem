@@ -30,6 +30,7 @@ export class BaseAgent {
   protected sessionId: string | null = null;
   protected agentName: string = '';
   protected systemPromptPath: string = '';
+  protected lastInvokedProvider: LlmProvider | null = null;
 
   constructor(
     systemPromptPath: string = '',
@@ -68,6 +69,10 @@ export class BaseAgent {
 
   setSessionId(id: string | null): void {
     this.sessionId = id;
+  }
+
+  protected getLastInvokedProvider(): string | null {
+    return this.lastInvokedProvider;
   }
 
   // Backward compatibility
@@ -129,6 +134,7 @@ export class BaseAgent {
     userMessage: string,
     maxTokens: number
   ): Promise<string> {
+    this.lastInvokedProvider = provider;
     const localEnabled = Boolean(this.getLocalLlmUrl() && this.getLocalLlmModel());
     switch (provider) {
       case 'codex': {

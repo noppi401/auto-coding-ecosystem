@@ -8,9 +8,10 @@ interface Props {
   task: Task | null;
   taskIndex: number;
   totalTasks: number;
+  hideError?: boolean;
 }
 
-export const CurrentTaskCard: React.FC<Props> = ({ task, taskIndex, totalTasks }) => {
+export const CurrentTaskCard: React.FC<Props> = ({ task, taskIndex, totalTasks, hideError }) => {
   if (!task) {
     return (
       <Box flexDirection="column" paddingX={1} paddingY={0} borderBottom borderStyle="single" borderColor={theme.border}>
@@ -68,7 +69,7 @@ export const CurrentTaskCard: React.FC<Props> = ({ task, taskIndex, totalTasks }
           <Text color={theme.fg}>{task.branchName}</Text>
         </Box>
       )}
-      {task.status === 'failed' && task.errorMessage && (
+      {task.status === 'failed' && task.errorMessage && !hideError && (
         <Box marginTop={1} paddingLeft={1} borderLeft borderStyle="single" borderColor={theme.danger}>
           <Text color={theme.danger} wrap="wrap">{task.errorMessage.slice(0, 200)}</Text>
         </Box>

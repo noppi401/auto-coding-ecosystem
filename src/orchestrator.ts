@@ -17,7 +17,37 @@ import { GitHubAgent } from './agents/github-agent.js';
 import { isLlmUsageLimitError } from './utils/llm-errors.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
-const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '3');
+const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
+
+type IssueSplitMode = 'auto' | 'always' | 'never';
+
+interface IssueSplitDecision {
+  shouldSplit: boolean;
+  reasons: string[];
+  metrics: {
+    bodyChars: number;
+    numberedItems: number;
+    targetFiles: number;
+    codeAreas: number;
+  };
+}
+
+interface PlannedIssueTasks {
+  sourceIssue: SourceIssue;
+  tasks: Task[];
+  split: boolean;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const parsed = Number.parseInt(process.env[name] || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const ISSUE_SPLIT_MODE = ((process.env.ISSUE_SPLIT_MODE || 'auto').toLowerCase()) as IssueSplitMode;
+const ISSUE_SPLIT_BODY_CHARS = readPositiveIntEnv('ISSUE_SPLIT_BODY_CHARS', 2000);
+const ISSUE_SPLIT_NUMBERED_ITEMS = readPositiveIntEnv('ISSUE_SPLIT_NUMBERED_ITEMS', 4);
+const ISSUE_SPLIT_TARGET_FILES = readPositiveIntEnv('ISSUE_SPLIT_TARGET_FILES', 4);
+const ISSUE_SPLIT_MAX_TARGET_FILES_PER_TASK = readPositiveIntEnv('ISSUE_SPLIT_MAX_TARGET_FILES_PER_TASK', 4);
 
 export class Orchestrator {
   private stateManager: StateManager;
@@ -219,6 +249,10 @@ export class Orchestrator {
             status: 'failed',
             errorMessage: `AI usage limit reached: ${String(err)}`,
           });
+          logger.warn(
+            'Token limit reached — wait for the limit to reset, then resume with',
+            `npm run dev -- phase2 --retry-failed`
+          );
           throw err;
         }
 
@@ -336,7 +370,13 @@ export class Orchestrator {
       codeOutput.commitMessage
     );
     if (!committed) {
-      throw new Error('CodingAgent produced no file changes to commit');
+      throw new Error(
+        [
+          `CodingAgent wrote ${codeOutput.files.length} file(s), but git detected no diff on ${task.branchName}.`,
+          'Generated content may be identical to the branch HEAD.',
+          `Files: ${codeOutput.files.map((file) => file.path).join(', ') || '(none)'}`,
+        ].join(' ')
+      );
     }
 
     // Create PR
@@ -647,8 +687,94 @@ export class Orchestrator {
     await this._saveMarkdown('.ecosystem/design.md', designDoc);
     await this.stateManager.updateDesignDoc(designDoc);
 
+    const taskPlanner = new TaskDecompAgent();
+    const plannedIssueTasks = await this._planSourceIssueTasks(
+      sourceIssues,
+      instruction,
+      repositoryContext,
+      taskPlanner
+    );
+    const tasks = plannedIssueTasks.flatMap((planned) => planned.tasks);
+
+    for (const planned of plannedIssueTasks) {
+      if (!planned.split) continue;
+      await this._createIssuesForTasks(planned.tasks, owner, repo, planned.sourceIssue);
+      try {
+        await this._commentSourceIssueWithTasks(planned.sourceIssue, planned.tasks, owner, repo);
+      } catch (err) {
+        logger.warn('Failed to comment source issue with generated task list; continuing', String(err));
+      }
+    }
+
+    await this.stateManager.setTasks(tasks);
+    const currentState = await this.stateManager.load();
+    if (!currentState) throw new Error('Failed to load state');
+    currentState.agentHistories.taskDecomp = plannedIssueTasks.some((planned) => planned.split)
+      ? taskPlanner.getHistory()
+      : currentState.agentHistories.taskDecomp;
+    await this.stateManager.save(currentState);
+
+    logger.info('Existing issues accepted as executable tasks', {
+      issueCount: sourceIssues.length,
+      taskCount: tasks.length,
+      splitIssueCount: plannedIssueTasks.filter((planned) => planned.split).length,
+      issues: sourceIssues.map((issue) => `#${issue.number}`).join(', '),
+    });
+
+    return currentState;
+  }
+
+  private async _planSourceIssueTasks(
+    sourceIssues: SourceIssue[],
+    instruction: string,
+    repositoryContext: string | undefined,
+    taskPlanner: TaskDecompAgent
+  ): Promise<PlannedIssueTasks[]> {
+    const plannedIssueTasks: PlannedIssueTasks[] = [];
+
+    for (const sourceIssue of sourceIssues) {
+      const splitDecision = this._decideIssueSplit(sourceIssue);
+      if (!splitDecision.shouldSplit) {
+        plannedIssueTasks.push({
+          sourceIssue,
+          tasks: [this._createDirectIssueTask(sourceIssue)],
+          split: false,
+        });
+        continue;
+      }
+
+      logger.info('Large source issue will be decomposed before coding', {
+        issue: `#${sourceIssue.number}`,
+        reasons: splitDecision.reasons,
+        metrics: splitDecision.metrics,
+      });
+
+      const decomposedTasks = await taskPlanner.decomposeTask(
+        this._buildSourceIssueRequirementsDoc([sourceIssue], instruction),
+        this._buildSplitIssueDesignDoc(sourceIssue, repositoryContext, splitDecision)
+      );
+      const tasks = this._normalizeSplitIssueTasks(sourceIssue, decomposedTasks);
+
+      if (tasks.length < 2) {
+        throw new Error(
+          [
+            `Issue #${sourceIssue.number} was classified as too large for one coding task.`,
+            `Reasons: ${splitDecision.reasons.join(', ') || 'manual split mode'}.`,
+            `TaskDecompAgent returned ${tasks.length} implementable task(s); refusing to run it as a single oversized task.`,
+          ].join(' ')
+        );
+      }
+
+      plannedIssueTasks.push({ sourceIssue, tasks, split: true });
+    }
+
+    return plannedIssueTasks;
+  }
+
+  private _createDirectIssueTask(sourceIssue: SourceIssue): Task {
     const now = new Date().toISOString();
-    const tasks: Task[] = sourceIssues.map((sourceIssue) => ({
+
+    return {
       id: randomUUID(),
       title: sourceIssue.title,
       summary: [
@@ -656,25 +782,129 @@ export class Orchestrator {
         sourceIssue.body.trim() || '(Issue body is empty)',
       ].join('\n\n'),
       branchName: `feat/issue-${sourceIssue.number}-${this._slugify(sourceIssue.title)}`,
-      targetFiles: [],
-      status: 'pending',
+      targetFiles: this._extractIssueTargetFiles(sourceIssue.body),
+      status: 'pending' as const,
       issueNumber: sourceIssue.number,
       issueUrl: sourceIssue.url,
       reviewIteration: 0,
       createdAt: now,
       updatedAt: now,
-    }));
+    };
+  }
 
-    await this.stateManager.setTasks(tasks);
-    const currentState = await this.stateManager.load();
-    if (!currentState) throw new Error('Failed to load state');
+  private _normalizeSplitIssueTasks(
+    sourceIssue: SourceIssue,
+    decomposedTasks: Task[]
+  ): Task[] {
+    const now = new Date().toISOString();
+    const issueTargetFiles = this._extractIssueTargetFiles(sourceIssue.body);
 
-    logger.info('Existing issues accepted as executable tasks', {
-      issueCount: sourceIssues.length,
-      issues: sourceIssues.map((issue) => `#${issue.number}`).join(', '),
+    return decomposedTasks.map((task, index) => {
+      const title = (task.title || '').trim() || `Issue #${sourceIssue.number} part ${index + 1}`;
+      const targetFiles = this._cleanTargetFiles(task.targetFiles);
+
+      return {
+        id: randomUUID(),
+        title: `Issue #${sourceIssue.number}-${index + 1}: ${title}`,
+        summary: [
+          `Source issue: #${sourceIssue.number}`,
+          sourceIssue.url,
+          task.summary?.trim() || sourceIssue.body.trim() || '(Issue body is empty)',
+        ].join('\n\n'),
+        branchName: `feat/issue-${sourceIssue.number}-${String(index + 1).padStart(2, '0')}-${this._slugify(title)}`,
+        targetFiles: targetFiles.length > 0 ? targetFiles : issueTargetFiles,
+        status: 'pending' as const,
+        reviewIteration: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
     });
+  }
 
-    return currentState;
+  private _decideIssueSplit(sourceIssue: SourceIssue): IssueSplitDecision {
+    const body = sourceIssue.body || '';
+    const targetFiles = this._extractIssueTargetFiles(body);
+    const codeAreas = new Set(
+      targetFiles
+        .map((file) => file.split('/')[0])
+        .filter(Boolean)
+    );
+    const metrics = {
+      bodyChars: body.length,
+      numberedItems: (body.match(/^\s*\d+[.)．]\s+/gm) || []).length,
+      targetFiles: targetFiles.length,
+      codeAreas: codeAreas.size,
+    };
+    const reasons: string[] = [];
+    const mode =
+      ISSUE_SPLIT_MODE === 'always' || ISSUE_SPLIT_MODE === 'never'
+        ? ISSUE_SPLIT_MODE
+        : 'auto';
+
+    if (mode === 'never') {
+      return { shouldSplit: false, reasons, metrics };
+    }
+    if (mode === 'always') {
+      return {
+        shouldSplit: true,
+        reasons: ['ISSUE_SPLIT_MODE=always'],
+        metrics,
+      };
+    }
+
+    if (metrics.bodyChars >= ISSUE_SPLIT_BODY_CHARS) {
+      reasons.push(`body chars ${metrics.bodyChars} >= ${ISSUE_SPLIT_BODY_CHARS}`);
+    }
+    if (metrics.numberedItems >= ISSUE_SPLIT_NUMBERED_ITEMS) {
+      reasons.push(`numbered items ${metrics.numberedItems} >= ${ISSUE_SPLIT_NUMBERED_ITEMS}`);
+    }
+    if (metrics.targetFiles >= ISSUE_SPLIT_TARGET_FILES) {
+      reasons.push(`target files ${metrics.targetFiles} >= ${ISSUE_SPLIT_TARGET_FILES}`);
+    }
+    if (metrics.codeAreas >= 2 && metrics.targetFiles >= 3) {
+      reasons.push(`multiple code areas (${metrics.codeAreas}) with ${metrics.targetFiles} target files`);
+    }
+
+    return {
+      shouldSplit: reasons.length > 0,
+      reasons,
+      metrics,
+    };
+  }
+
+  private _buildSplitIssueDesignDoc(
+    sourceIssue: SourceIssue,
+    repositoryContext: string | undefined,
+    splitDecision: IssueSplitDecision
+  ): string {
+    return `${this._buildSourceIssueDesignDoc([sourceIssue], repositoryContext)}
+
+## Large Issue Decomposition Rules
+- This issue must be decomposed before implementation.
+- Split into 2-6 ordered tasks that can each be implemented and reviewed independently.
+- Prefer separating schema/migration, backend API/service, frontend UI, export/integration, and tests.
+- Keep each task near ${ISSUE_SPLIT_MAX_TARGET_FILES_PER_TASK} target files or fewer when practical.
+- Include concrete targetFiles for every task.
+- Do not create speculative tasks outside the source issue scope.
+
+## Split Trigger
+- ${splitDecision.reasons.join('\n- ') || 'manual split mode'}
+`;
+  }
+
+  private _extractIssueTargetFiles(text: string): string[] {
+    const matches = text.matchAll(
+      /(?:^|[\s`'"(（])((?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.*-]+\.(?:ts|tsx|js|jsx|json|prisma|sql|md|yml|yaml|css|scss|html|ps1|sh|env|example))/gm
+    );
+    return this._cleanTargetFiles([...matches].map((match) => match[1]));
+  }
+
+  private _cleanTargetFiles(paths: string[]): string[] {
+    const cleaned = paths
+      .map((path) => path.trim().replace(/\\/g, '/').replace(/[),.;:，、。]+$/g, ''))
+      .filter((path) => path.length > 0 && !path.startsWith('http'));
+
+    return [...new Set(cleaned)];
   }
 
   private _buildSourceIssueRequirementsDoc(sourceIssues: SourceIssue[], instruction: string): string {
@@ -1010,8 +1240,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         doc,
         validation.issues,
         validation.recommendations,
-        instruction,
-        repositoryContext
+        instruction
       );
     }
 
@@ -1062,8 +1291,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         doc,
         validation.issues,
         validation.recommendations,
-        requirementsDoc,
-        repositoryContext
+        requirementsDoc
       );
     }
 
@@ -1115,7 +1343,7 @@ ${recLines}
     state: ProjectState,
     primaryReview: Awaited<ReturnType<ReviewAgent['reviewPr']>>
   ) {
-    const codexReviewEnabled = process.env.CODEX_REVIEW_ENABLED !== 'false';
+    const codexReviewEnabled = process.env.CODEX_REVIEW_ENABLED === 'true';
     if (!codexReviewEnabled) {
       return primaryReview;
     }

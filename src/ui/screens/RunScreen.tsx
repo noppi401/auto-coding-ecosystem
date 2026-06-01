@@ -192,6 +192,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
                 task={currentTask}
                 taskIndex={ecoState.currentTaskIndex}
                 totalTasks={tasks.length}
+                hideError={inRecovery && focusedTask?.id === currentTask?.id}
               />
               {focusedTask?.status === 'failed' && expandedTaskId === focusedTask.id ? (
                 <RecoveryMenu

@@ -9,7 +9,7 @@ import { logger, isPlainMode } from './utils/logger.js';
 import { isLlmUsageLimitError, LlmUsageLimitError } from './utils/llm-errors.js';
 import { App } from './ui/App.js';
 import { showHomeMenu } from './ui/prompts/homeMenu.js';
-import { showRequestWizard, showModelSelectWizard } from './ui/prompts/requestWizard.js';
+import { showRequestWizard, showModelSelectWizard, showLoopSelectWizard } from './ui/prompts/requestWizard.js';
 import { ensureGhAuth } from './ui/prompts/authPrompt.js';
 import { parseCodexIntelligence } from './utils/codex-options.js';
 import { buildIssuesInstruction } from './utils/issue-instruction.js';
@@ -272,12 +272,12 @@ async function plainPhase2(
   }
 }
 
-async function runPhase2RetryLoop(limitProvider: LimitProvider): Promise<void> {
-  const maxAttempts = Number(process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100');
+async function runPhase2RetryLoop(limitProvider: LimitProvider, maxAttempts?: number): Promise<void> {
+  const resolvedMax = maxAttempts ?? Number(process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100');
   let stoppedWithNoFailures = false;
 
-  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    logger.section(`PHASE 2 RETRY LOOP ${attempt}/${maxAttempts}`);
+  for (let attempt = 1; attempt <= resolvedMax; attempt++) {
+    logger.section(`PHASE 2 RETRY LOOP ${attempt}/${resolvedMax}`);
     configureAiTokenMode(limitProvider);
 
     const orch = new Orchestrator();
@@ -304,7 +304,7 @@ async function runPhase2RetryLoop(limitProvider: LimitProvider): Promise<void> {
   if (!stoppedWithNoFailures) {
     logger.warn(
       'Phase 2 retry loop stopped by max attempts',
-      `PHASE2_LOOP_MAX_ATTEMPTS=${maxAttempts}`
+      `PHASE2_LOOP_MAX_ATTEMPTS=${resolvedMax}`
     );
   }
 }
@@ -417,10 +417,19 @@ async function uiEntry(args: string[]): Promise<void> {
     process.env.PLANNING_CLAUDE_MODEL = modelSelection.planningModel;
     process.env.IMPLEMENTATION_CLAUDE_MODEL = modelSelection.implModel;
 
+    const executionCount = await showLoopSelectWizard();
+
     await ensureGhAuth();
     const orchestrator = new Orchestrator();
     await launchInk(async () => {
-      await orchestrator.runPhase2(true);
+      if (executionCount === 0 || executionCount > 1) {
+        const maxAttempts = executionCount === 0
+          ? Number(process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100')
+          : executionCount;
+        await runPhase2RetryLoop('all', maxAttempts);
+      } else {
+        await orchestrator.runPhase2(true);
+      }
     });
     return;
   }
@@ -450,7 +459,15 @@ async function uiEntry(args: string[]): Promise<void> {
       sourceIssues: wizard.sourceIssues,
     });
     if (wizard.phaseMode === 'phase1+2') {
-      await orchestrator.runPhase2(false);
+      const count = wizard.executionCount;
+      if (count === 0 || count > 1) {
+        const maxAttempts = count === 0
+          ? Number(process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100')
+          : count;
+        await runPhase2RetryLoop('all', maxAttempts);
+      } else {
+        await orchestrator.runPhase2(false);
+      }
     }
   });
 }

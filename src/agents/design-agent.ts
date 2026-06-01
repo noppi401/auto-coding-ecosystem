@@ -31,8 +31,7 @@ ${repositoryContext ? 'Design the change to fit the existing repository structur
     currentDoc: string,
     issues: string[],
     recommendations: string[],
-    requirementsDoc: string,
-    repositoryContext?: string
+    requirementsDoc: string
   ): Promise<string> {
     await this.loadSystemPrompt();
 
@@ -44,7 +43,7 @@ ${repositoryContext ? 'Design the change to fit the existing repository structur
     const prompt = `## 要件定義書（参照用）
 ${requirementsDoc}
 
-${repositoryContext ? `## 既存リポジトリのコンテキスト\n${repositoryContext}\n\n` : ''}## 現在の設計書（修正前）
+## 現在の設計書（修正前）
 ${currentDoc}
 
 ## 検証エージェントによる指摘事項

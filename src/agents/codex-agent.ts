@@ -62,6 +62,9 @@ Return ONLY valid JSON with this structure:
   ): Promise<ReviewResult> {
     logger.section(`CodexAgent: Reviewing PR for "${task.title}"`);
 
+    const reqMax = Number(process.env.CODEX_REQ_DOC_MAX_CHARS || '4000');
+    const designMax = Number(process.env.CODEX_DESIGN_DOC_MAX_CHARS || '3000');
+
     const prompt = `You are the independent Codex reviewer in an autonomous coding pipeline.
 
 Review the PR diff against the task, requirements, and design. Focus on bugs, missing behavior, security risks, broken tests, and changes that do not match the design.
@@ -69,11 +72,11 @@ Review the PR diff against the task, requirements, and design. Focus on bugs, mi
 TASK: ${task.title}
 SUMMARY: ${task.summary}
 
-REQUIREMENTS:
-${requirementsDoc}
+REQUIREMENTS (excerpt):
+${requirementsDoc.substring(0, reqMax)}
 
-DESIGN:
-${designDoc}
+DESIGN (excerpt):
+${designDoc.substring(0, designMax)}
 
 PR DIFF:
 ${prDiff.substring(0, Number(process.env.CODEX_MAX_DIFF_CHARS || '20000'))}

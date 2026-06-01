@@ -16,13 +16,16 @@ export class TaskDecompAgent extends BaseAgent {
 
     logger.section('TaskDecompAgent: Decomposing design into tasks');
 
+    const reqMax = Number(process.env.TASK_DECOMP_REQ_DOC_MAX_CHARS || '6000');
+    const designMax = Number(process.env.TASK_DECOMP_DESIGN_DOC_MAX_CHARS || '4000');
+
     const prompt = `Based on the following requirements and design, break down the work into specific, implementable tasks. Return ONLY valid JSON (no markdown, no explanations).
 
-REQUIREMENTS:
-${requirementsDoc}
+REQUIREMENTS (excerpt):
+${requirementsDoc.substring(0, reqMax)}
 
-DESIGN:
-${designDoc}
+DESIGN (excerpt):
+${designDoc.substring(0, designMax)}
 
 Respond with JSON array of tasks with this structure:
 [

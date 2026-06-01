@@ -31,8 +31,7 @@ ${repositoryContext ? 'This is a modification to an existing repository. Infer c
     currentDoc: string,
     issues: string[],
     recommendations: string[],
-    instruction: string,
-    repositoryContext?: string
+    instruction: string
   ): Promise<string> {
     await this.loadSystemPrompt();
 
@@ -44,7 +43,7 @@ ${repositoryContext ? 'This is a modification to an existing repository. Infer c
     const prompt = `## 元のユーザーインストラクション
 ${instruction}
 
-${repositoryContext ? `## 既存リポジトリのコンテキスト\n${repositoryContext}\n\n` : ''}## 現在の要件定義書（修正前）
+## 現在の要件定義書（修正前）
 ${currentDoc}
 
 ## 検証エージェントによる指摘事項

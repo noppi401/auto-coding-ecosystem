@@ -36,6 +36,8 @@ export interface WizardResult {
   codexIntelligence?: CodexIntelligenceChoice;
   sourceIssue?: SourceIssue;
   sourceIssues?: SourceIssue[];
+  /** 1=1回, N>1=N回繰り返し, 0=リミットまで */
+  executionCount: number;
 }
 
 export interface RequestWizardOptions {
@@ -350,6 +352,37 @@ export async function showRequestWizard(
     instruction = (instructionRaw as string).trim();
   }
 
+  // 処理回数（イシュー選択時のみ）
+  let executionCount = 1;
+  if (sourceIssues && sourceIssues.length > 0) {
+    const execModeRaw = await select({
+      message: '処理回数',
+      options: [
+        { value: '1',     label: '1回',        hint: '各タスクを1回実行して終了' },
+        { value: 'multi', label: '複数',        hint: '指定した回数だけ繰り返し実行' },
+        { value: 'limit', label: 'リミットまで', hint: `最大${process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100'}回まで全タスクがマージされるまで繰り返す` },
+      ],
+      initialValue: '1',
+    });
+    if (isCancel(execModeRaw)) { outro('中止'); process.exit(0); }
+
+    if (execModeRaw === 'multi') {
+      const countRaw = await text({
+        message: '実行回数を入力してください',
+        placeholder: '3',
+        initialValue: '3',
+        validate: (v) => {
+          const n = Number(v);
+          return Number.isInteger(n) && n >= 2 ? undefined : '2以上の整数を入力してください';
+        },
+      });
+      if (isCancel(countRaw)) { outro('中止'); process.exit(0); }
+      executionCount = Number(countRaw);
+    } else if (execModeRaw === 'limit') {
+      executionCount = 0;
+    }
+  }
+
   // Phase mode
   const phaseOptions = sourceIssues && sourceIssues.length > 0
     ? [
@@ -457,7 +490,37 @@ export async function showRequestWizard(
     codexIntelligence,
     sourceIssue: sourceIssues?.[0],
     sourceIssues,
+    executionCount,
   };
+}
+
+export async function showLoopSelectWizard(): Promise<number> {
+  const execModeRaw = await select({
+    message: '処理回数',
+    options: [
+      { value: '1',     label: '1回',         hint: '未完了タスクを1回実行して終了' },
+      { value: 'multi', label: '複数',         hint: '指定した回数だけ繰り返し実行' },
+      { value: 'limit', label: 'リミットまで',  hint: `最大${process.env.PHASE2_LOOP_MAX_ATTEMPTS || '100'}回まで全タスクがマージされるまで繰り返す` },
+    ],
+    initialValue: '1',
+  });
+  if (isCancel(execModeRaw)) { outro('中止'); process.exit(0); }
+
+  if (execModeRaw === 'multi') {
+    const countRaw = await text({
+      message: '実行回数を入力してください',
+      placeholder: '3',
+      initialValue: '3',
+      validate: (v) => {
+        const n = Number(v);
+        return Number.isInteger(n) && n >= 2 ? undefined : '2以上の整数を入力してください';
+      },
+    });
+    if (isCancel(countRaw)) { outro('中止'); process.exit(0); }
+    return Number(countRaw);
+  }
+
+  return execModeRaw === 'limit' ? 0 : 1;
 }
 
 export async function showModelSelectWizard(
