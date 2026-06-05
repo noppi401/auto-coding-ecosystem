@@ -131,6 +131,16 @@ function truncate(v: string, n: number): string {
   return v.length <= n ? v : v.slice(0, n - 3) + '...';
 }
 
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '-';
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return `${h}h${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `${m}m${String(s % 60).padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
 // ── Issue #3: タスク承認 ───────────────────────────────────────────────────────
 
 /** タスク承認が有効か（既定: 有効。TASK_APPROVAL=false で無効化）。 */
@@ -173,8 +183,11 @@ function cleanOneLine(v: string): string {
 }
 
 function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['load']>>>): void {
+  const total = state.tasks.length;
   const failed = state.tasks.filter((t) => t.status === 'failed').length;
   const merged = state.tasks.filter((t) => t.status === 'merged').length;
+  const pending = state.tasks.filter((t) => t.status === 'pending').length;
+  const inProgress = total - merged - failed - pending;
 
   // Project header
   console.log('');
@@ -182,17 +195,27 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
   console.log(`Repo      : https://github.com/${state.githubOwner}/${state.githubRepo}`);
   console.log(`Phase     : ${state.phase}`);
   console.log(`Instruction: ${truncate(cleanOneLine(state.userInstruction), 80)}`);
-  console.log(`Summary   : Merged ${merged}/${state.tasks.length}  Failed ${failed}/${state.tasks.length}`);
+
+  // Progress bar + counts (Issue #5)
+  const barWidth = 24;
+  const filled = total > 0 ? Math.round((merged / total) * barWidth) : 0;
+  const bar = '█'.repeat(filled) + '░'.repeat(Math.max(0, barWidth - filled));
+  const pct = total > 0 ? Math.round((merged / total) * 100) : 0;
+  console.log(`Progress  : [${bar}] ${pct}%  (${merged}/${total})`);
+  console.log(
+    `Summary   : merged ${merged}  in-progress ${inProgress}  pending ${pending}  failed ${failed}`
+  );
   console.log('');
 
   // Column headers
-  const COL = { n: 3, title: 40, status: 12, issue: 7, pr: 6 };
+  const COL = { n: 3, title: 36, status: 12, issue: 7, pr: 6, age: 7 };
   const header =
     '#'.padEnd(COL.n) + ' ' +
     'TASK'.padEnd(COL.title) + ' ' +
     'STATUS'.padEnd(COL.status) + ' ' +
     'ISSUE'.padEnd(COL.issue) + ' ' +
     'PR'.padEnd(COL.pr) + ' ' +
+    'AGE'.padEnd(COL.age) + ' ' +
     'DETAIL';
   console.log(header);
   console.log('-'.repeat(header.length + 10));
@@ -200,18 +223,37 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
   state.tasks.forEach((task, i) => {
     const issue = task.issueNumber ? `#${task.issueNumber}` : '-';
     const pr    = task.prNumber    ? `#${task.prNumber}`    : '-';
+    const age = formatDuration(
+      new Date(task.updatedAt).getTime() - new Date(task.createdAt).getTime()
+    );
     const detail = task.status === 'failed' && task.errorMessage
       ? truncate(cleanOneLine(task.errorMessage), 60)
       : task.reviewIteration > 0 ? `iter ${task.reviewIteration}` : '-';
     console.log(
       (i + 1).toString().padEnd(COL.n) + ' ' +
-      task.title.padEnd(COL.title) + ' ' +
+      truncate(task.title, COL.title).padEnd(COL.title) + ' ' +
       task.status.padEnd(COL.status) + ' ' +
       issue.padEnd(COL.issue) + ' ' +
       pr.padEnd(COL.pr) + ' ' +
+      age.padEnd(COL.age) + ' ' +
       detail
     );
   });
+
+  // Clickable links (Issue #5)
+  const linked = state.tasks.filter((t) => t.issueUrl || t.prUrl);
+  if (linked.length > 0) {
+    console.log('');
+    console.log('Links:');
+    linked.forEach((task) => {
+      const idx = state.tasks.indexOf(task) + 1;
+      const parts = [
+        task.issueUrl ? `issue ${task.issueUrl}` : '',
+        task.prUrl ? `pr ${task.prUrl}` : '',
+      ].filter(Boolean).join('  ');
+      console.log(`  ${idx}. ${truncate(cleanOneLine(task.title), 36)}  ${parts}`);
+    });
+  }
 }
 
 async function printLlmLimitNotice(err: LlmUsageLimitError): Promise<void> {
