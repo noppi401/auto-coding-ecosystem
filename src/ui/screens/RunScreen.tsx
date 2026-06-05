@@ -222,7 +222,28 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
         {/* Right */}
         <Box flexGrow={1} flexDirection="column">
           {showLog ? (
-            <LogStream logs={ecoState.logs} visibleLines={20} />
+            <>
+              {/* Issue #11: ログ表示中も現在処理中の Issue/タスクを常時表示 */}
+              <Box paddingX={1} gap={1} borderBottom borderStyle="single" borderColor={theme.border}>
+                <Text color={theme.fgDim}>現在処理中</Text>
+                {currentTask ? (
+                  <>
+                    <Text color={theme.fg} bold>Task {ecoState.currentTaskIndex + 1}/{tasks.length}</Text>
+                    {currentTask.issueNumber && (
+                      <>
+                        <Text color={theme.fgFaint}>·</Text>
+                        <Text color={theme.info}>Issue #{currentTask.issueNumber}</Text>
+                      </>
+                    )}
+                    <Text color={theme.fgFaint}>·</Text>
+                    <Text color={theme.fg}>{currentTask.title}</Text>
+                  </>
+                ) : (
+                  <Text color={theme.fgFaint}>待機中...</Text>
+                )}
+              </Box>
+              <LogStream logs={ecoState.logs} visibleLines={19} />
+            </>
           ) : (
             <>
               <CurrentTaskCard
