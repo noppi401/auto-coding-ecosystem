@@ -15,6 +15,7 @@ import type { CodexIntelligence } from '../../utils/codex-options.js';
 import type { SourceIssue } from '../../state/types.js';
 import { GitHubAgent } from '../../agents/github-agent.js';
 import { buildIssuesInstruction } from '../../utils/issue-instruction.js';
+import { loadWizardDefaults, saveWizardDefaults } from './wizardDefaults.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
 export type ProjectMode = 'new' | 'modify';
@@ -236,10 +237,27 @@ async function selectExistingIssues(owner: string, repoName: string): Promise<So
   return issues.filter((issue) => issueNumbers.has(issue.number));
 }
 
+function asProvider(value: string | undefined): LlmProviderChoice | undefined {
+  return value === 'claude' || value === 'codex' || value === 'gemini' ? value : undefined;
+}
+
 export async function showRequestWizard(
   defaults: Partial<WizardResult> = {},
   options: RequestWizardOptions = {}
 ): Promise<WizardResult> {
+  // Issue #2: 前回の選択値を復元する。ただし .env / CLI で明示された値（環境変数）を優先する。
+  const persisted = await loadWizardDefaults();
+  defaults = {
+    ...persisted,
+    planningModel: process.env.PLANNING_CLAUDE_MODEL || persisted.planningModel,
+    implModel: process.env.IMPLEMENTATION_CLAUDE_MODEL || persisted.implModel,
+    primaryProvider: asProvider(process.env.PLANNING_LLM_PROVIDER) ?? persisted.primaryProvider,
+    fallbackProvider: asProvider(process.env.FALLBACK_LLM_PROVIDER) ?? persisted.fallbackProvider,
+    codexModel: process.env.CODEX_MODEL || persisted.codexModel,
+    // 呼び出し元が明示した defaults は最優先で上書きする
+    ...defaults,
+  };
+
   // Project mode
   let projectMode: ProjectMode;
   if (options.forceProjectMode) {
@@ -475,7 +493,7 @@ export async function showRequestWizard(
     `準備完了 · ${owner}/${repoName} · ${phaseMode as string} · ${primaryProvider}→${fallbackProvider}`
   );
 
-  return {
+  const result: WizardResult = {
     instruction,
     repoName,
     owner,
@@ -492,6 +510,11 @@ export async function showRequestWizard(
     sourceIssues,
     executionCount,
   };
+
+  // Issue #2: 次回起動時の既定値として保存する（機微情報は含めない）。
+  await saveWizardDefaults(result);
+
+  return result;
 }
 
 export async function showLoopSelectWizard(): Promise<number> {
