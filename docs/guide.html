@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Auto Coding Ecosystem — はじめてのガイド</title>
+<style>
+  :root {
+    --accent: #ff8a4c;
+    --bg: #1b1a18;
+    --panel: #242220;
+    --panel2: #2d2a27;
+    --fg: #ededea;
+    --fg-mute: #bcb9b5;
+    --fg-dim: #8a8783;
+    --border: #403d3a;
+    --success: #7ed79c;
+    --info: #9fd1d8;
+    --review: #8fb1e8;
+    --warning: #e9c87a;
+    --danger: #e58277;
+    --special: #d49fdf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.75;
+  }
+  a { color: var(--accent); }
+  code, .mono {
+    font-family: "Cascadia Code", "Consolas", "SF Mono", monospace;
+    background: #0000003d;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 0.9em;
+    color: #ffd9c2;
+  }
+  header.hero {
+    background: linear-gradient(135deg, #2a211c 0%, #1b1a18 70%);
+    border-bottom: 1px solid var(--border);
+    padding: 48px 24px;
+    text-align: center;
+  }
+  header.hero h1 { margin: 0; font-size: 2.1rem; letter-spacing: .5px; }
+  header.hero .tri { color: var(--accent); }
+  header.hero p { color: var(--fg-mute); max-width: 760px; margin: 14px auto 0; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px 80px; }
+  section { margin-top: 56px; }
+  h2 {
+    font-size: 1.45rem;
+    border-left: 4px solid var(--accent);
+    padding-left: 12px;
+    margin-bottom: 8px;
+  }
+  h3 { font-size: 1.1rem; color: var(--fg); margin-top: 28px; }
+  p.lead { color: var(--fg-mute); }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+  }
+  .agent {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    border-top: 3px solid var(--accent);
+  }
+  .agent h4 { margin: 0 0 6px; font-size: 1rem; }
+  .agent .role { color: var(--fg-dim); font-size: .82rem; text-transform: uppercase; letter-spacing: .5px; }
+  .agent p { margin: 8px 0 0; color: var(--fg-mute); font-size: .92rem; }
+  .agent.plan { border-top-color: var(--review); }
+  .agent.valid { border-top-color: var(--warning); }
+  .agent.impl { border-top-color: var(--success); }
+  .agent.infra { border-top-color: var(--info); }
+
+  /* flow diagram */
+  .flow { margin-top: 20px; }
+  .phase-band {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+    margin-bottom: 18px;
+  }
+  .phase-band .ptitle {
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .phase-band.p2 .ptitle { color: var(--success); }
+  .steps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .step {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    flex: 1 1 150px;
+    min-width: 150px;
+    font-size: .9rem;
+  }
+  .step b { display: block; color: var(--fg); }
+  .step span { color: var(--fg-dim); font-size: .82rem; }
+  .arrow { align-self: center; color: var(--accent); font-size: 1.3rem; padding: 0 2px; }
+  .loop-note { color: var(--fg-dim); font-size: .85rem; margin-top: 10px; }
+
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: .92rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--fg-dim); font-weight: 600; border-bottom: 2px solid var(--border); }
+  td code { white-space: nowrap; }
+  .pill {
+    display: inline-block; font-size: .72rem; padding: 2px 8px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--fg-mute); margin-left: 6px;
+  }
+  .pill.opt { color: var(--warning); border-color: #5a4a2a; }
+  pre {
+    background: #100f0e;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    color: #e7e4df;
+    font-family: "Cascadia Code", "Consolas", monospace;
+    font-size: .88rem;
+    line-height: 1.6;
+  }
+  pre .c { color: var(--fg-dim); }
+  ul.tight { margin: 8px 0 0; padding-left: 20px; }
+  ul.tight li { margin: 4px 0; color: var(--fg-mute); }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px; font-size: .85rem; color: var(--fg-dim); }
+  .legend span::before { content: "■ "; }
+  .lg-plan::before { color: var(--review); }
+  .lg-valid::before { color: var(--warning); }
+  .lg-impl::before { color: var(--success); }
+  .lg-infra::before { color: var(--info); }
+  .note {
+    border-left: 3px solid var(--info);
+    background: #1f2a2c33;
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    color: var(--fg-mute);
+    font-size: .92rem;
+    margin-top: 14px;
+  }
+  footer { color: var(--fg-dim); text-align: center; padding: 30px; border-top: 1px solid var(--border); font-size: .85rem; }
+</style>
+</head>
+<body>
+<header class="hero">
+  <h1><span class="tri">▲</span> Auto Coding Ecosystem</h1>
+  <p>要件定義 → 設計 → タスク分解 → 実装 → レビュー → 修正 → PR 作成 → マージ までを、複数の AI エージェントが連携して自動化するローカル実行型パイプライン。このページは、はじめて触る方向けに「仕組み」と「使い方」をまとめたガイドです。</p>
+</header>
+
+<div class="wrap">
+
+  <section id="overview">
+    <h2>1. これは何？</h2>
+    <p class="lead">あなたが日本語で指示を渡すと、ツールが自動で次のことを行います。</p>
+    <div class="card">
+      <ul class="tight">
+        <li><b>計画（Phase 1）</b>: 指示から要件定義・設計書を作り、品質を別エージェントが採点。合格したら実装タスクへ分解し、GitHub Issue を起票します。</li>
+        <li><b>実装（Phase 2）</b>: タスクごとにブランチを切ってコードを生成 → PR を作成 → ビルド/テストとレビューを回して修正 → 承認されたらマージし、Issue を閉じます。</li>
+      </ul>
+      <p style="margin-top:12px; color:var(--fg-mute)">利用する AI は <b>Claude</b> を基本に、利用上限に達したら <b>Codex</b> / <b>Gemini</b> へ自動で切り替えられます。すべてローカルの CLI（<code>claude</code> / <code>gh</code> など）を呼び出して動作します。</p>
+    </div>
+  </section>
+
+  <section id="agents">
+    <h2>2. エージェント構成</h2>
+    <p class="lead">各エージェントは共通基盤 <code>BaseAgent</code>（LLM 呼び出し・フォールバック・利用上限検知）を継承します。司令塔の <code>Orchestrator</code> がこれらを順に呼び出し、状態は <code>.ecosystem/state.json</code> に保存されます。</p>
+    <div class="legend">
+      <span class="lg-plan">計画系</span>
+      <span class="lg-valid">検証系</span>
+      <span class="lg-impl">実装系</span>
+      <span class="lg-infra">基盤・連携</span>
+    </div>
+    <div class="grid">
+      <div class="agent plan">
+        <div class="role">計画</div><h4>RequirementsAgent</h4>
+        <p>指示文（＋既存リポジトリ要約）から要件定義書を生成。</p>
+      </div>
+      <div class="agent valid">
+        <div class="role">検証</div><h4>RequirementsValidationAgent</h4>
+        <p>要件を 5 軸 100 点で採点。閾値未満なら要件を修正するループを回す。</p>
+      </div>
+      <div class="agent plan">
+        <div class="role">計画</div><h4>DesignAgent</h4>
+        <p>要件から設計書（アーキテクチャ）を生成。</p>
+      </div>
+      <div class="agent valid">
+        <div class="role">検証</div><h4>DesignValidationAgent</h4>
+        <p>設計を 5 軸 100 点で採点。閾値未満なら設計を修正するループを回す。</p>
+      </div>
+      <div class="agent plan">
+        <div class="role">計画</div><h4>TaskDecompAgent</h4>
+        <p>設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）を付与。</p>
+      </div>
+      <div class="agent infra">
+        <div class="role">トークン削減</div><h4>RepoContextSummaryAgent</h4>
+        <p>既存リポジトリ改修時、巨大なコンテキストを一度だけ要約して後続で再利用。</p>
+      </div>
+      <div class="agent impl">
+        <div class="role">実装</div><h4>CodingAgent</h4>
+        <p>タスクごとにコードを生成。複雑度に応じて実装モデルを自動選択可能。</p>
+      </div>
+      <div class="agent impl">
+        <div class="role">実装</div><h4>ReviewAgent</h4>
+        <p>PR の差分をレビューし、blocking / suggestion の指摘を返す。</p>
+      </div>
+      <div class="agent impl">
+        <div class="role">実装</div><h4>CodexAgent</h4>
+        <p>任意で有効化できる独立レビュアー（セカンドオピニオン）。</p>
+      </div>
+      <div class="agent impl">
+        <div class="role">実装</div><h4>FixAgent</h4>
+        <p>blocking 指摘を受けてコードを修正し、再コミットする。</p>
+      </div>
+      <div class="agent infra">
+        <div class="role">連携</div><h4>GitHubAgent</h4>
+        <p>リポジトリ/ブランチ/Issue/PR/マージ操作、worktree でのビルド・テスト実行。</p>
+      </div>
+      <div class="agent infra">
+        <div class="role">基盤</div><h4>Orchestrator / StateManager</h4>
+        <p>全エージェントの実行順を制御し、進行状態を逐次保存・復元する。</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="flow">
+    <h2>3. 処理の流れ</h2>
+    <p class="lead">指示の入力からマージまで、エージェントは次のようにバトンを渡していきます。</p>
+
+    <div class="flow">
+      <div class="phase-band p1">
+        <div class="ptitle">▶ Phase 1 ： 計画（要件 → 設計 → タスク → Issue）</div>
+        <div class="steps">
+          <div class="step"><b>指示入力</b><span>自然言語 / エディタ複数行</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>Requirements</b><span>要件生成＋採点ループ</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>Design</b><span>設計生成＋採点ループ</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>TaskDecomp</b><span>タスク分解＋複雑度</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>承認 → Issue 起票</b><span>一覧をプレビュー承認</span></div>
+        </div>
+        <div class="loop-note">※ 採点が閾値未満なら、要件/設計はそれぞれ自動で修正ループ。結果は <code>.ecosystem/*.md</code> に保存。</div>
+      </div>
+
+      <div class="phase-band p2">
+        <div class="ptitle">▶ Phase 2 ： 実装（タスクごとに 1 件ずつ）</div>
+        <div class="steps">
+          <div class="step"><b>ブランチ作成</b><span>GitHubAgent</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>Coding</b><span>コード生成→コミット→PR</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>ビルド/テスト</b><span>tsc / npm test（決定論）</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>Review (+Codex)</b><span>差分レビュー</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>Fix</b><span>blocking を修正</span></div>
+          <div class="arrow">→</div>
+          <div class="step"><b>マージ→Issue close</b><span>worktree 同期</span></div>
+        </div>
+        <div class="loop-note">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。</div>
+      </div>
+    </div>
+    <div class="note">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</div>
+  </section>
+
+  <section id="setup">
+    <h2>4. セットアップ</h2>
+    <div class="card">
+      <p style="margin-top:0"><b>前提</b>: Node.js 20+ / Claude CLI（<code>claude</code>）/ GitHub CLI（<code>gh auth login</code> 済み）/ 任意で Codex・Gemini CLI。</p>
+<pre><span class="c"># 依存をインストール</span>
+npm install
+
+<span class="c"># 環境変数を用意</span>
+cp .env.example .env
+<span class="c"># .env に最低限これを設定</span>
+<span class="c">#   GITHUB_TOKEN=ghp_xxx</span>
+<span class="c">#   GITHUB_OWNER=your-github-owner</span></pre>
+    </div>
+  </section>
+
+  <section id="usage">
+    <h2>5. 使い方</h2>
+
+    <h3>対話モードで起動（おすすめ）</h3>
+<pre>npm run dev</pre>
+    <p class="lead">ホームメニューから選びます。</p>
+    <ul class="tight">
+      <li><b>New request</b> — 新しい依頼を作成（新規リポジトリ or 既存リポジトリ改修）</li>
+      <li><b>Run from Issue</b> — 既存リポジトリの open Issue を選んで実行（複数選択・全件可）</li>
+      <li><b>Resume Phase 2</b> — 途中で止まったコーディングループを再開</li>
+      <li><b>Phase 1 only</b> — 計画だけ実行して Issue を起票し停止</li>
+      <li><b>Show status</b> — 現在の進捗（進捗バー・経過時間・PR/Issue リンク）を表示</li>
+    </ul>
+    <div class="note">ウィザードの選択（プロバイダー・モデル・フェーズなど）は <code>.ecosystem/wizard-defaults.json</code> に保存され、次回起動時に初期値として復元されます。実行状態は画面ヘッダーに <b>⏸ 入力待ち / ● 実行中 / ✓ 完了</b> と常時表示されます。</div>
+
+    <h3>コマンドラインで実行</h3>
+<pre><span class="c"># 新規リポジトリを作って計画→実装まで自動実行</span>
+npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --auto
+
+<span class="c"># 既存リポジトリを改修</span>
+npm run dev -- modify --target-repo owner/repo --instruction-file ./change.txt --auto
+
+<span class="c"># 既存 Issue を直接実行（複数可）</span>
+npm run dev -- modify --target-repo owner/repo --issue-number 123,124 --auto
+
+<span class="c"># Phase 2 だけ実行 / 失敗タスクを再試行</span>
+npm run dev -- phase2 --retry-failed
+
+<span class="c"># 進捗を確認</span>
+npm run dev -- status</pre>
+    <div class="note">長い日本語指示は、文字化けを避けるため <code>--instruction-file</code> での受け渡しを推奨します（対話モードでは「エディタで複数行入力」も選べます）。</div>
+
+    <h3>モデルを指定する</h3>
+<pre>npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
+npm run dev -- phase2 --impl-model claude-sonnet-4-6
+npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intelligence high</pre>
+    <p class="lead">CLI 引数は <code>.env</code> より優先されます。Planning（計画系）は安価なモデル、Implementation（実装系）はやや高性能なモデル、という使い分けが基本です。</p>
+  </section>
+
+  <section id="token">
+    <h2>6. トークン削減オプション</h2>
+    <p class="lead">いずれも既定は無効（現行挙動を維持）で、環境変数で有効化する opt-in 方式です。</p>
+    <table>
+      <thead><tr><th>環境変数</th><th>既定</th><th>効果</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>TASK_MODEL_ROUTING</code><span class="pill opt">opt-in</span></td>
+          <td><code>false</code></td>
+          <td>タスクの複雑度に応じて実装モデルを自動選択（low→haiku / medium→sonnet / high→opus）。ユーザー指定モデルは「上限」として尊重。</td>
+        </tr>
+        <tr>
+          <td><code>REPO_CONTEXT_SUMMARY</code><span class="pill opt">opt-in</span></td>
+          <td><code>false</code></td>
+          <td>既存リポジトリのコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用。</td>
+        </tr>
+        <tr>
+          <td><code>IMPL_DOC_RELEVANCE</code><span class="pill opt">opt-in</span></td>
+          <td><code>false</code></td>
+          <td>コード生成時、要件・設計書をタスク関連セクションに絞り込む。</td>
+        </tr>
+        <tr>
+          <td><code>PR_DIFF_MAX_CHARS</code></td>
+          <td><code>30000</code></td>
+          <td>レビュー/修正に渡す PR diff を上限でトリミング。lockfile は既定で除外。<code>0</code> で無効。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="env">
+    <h2>7. 主な環境変数（抜粋）</h2>
+    <table>
+      <thead><tr><th>変数</th><th>既定</th><th>説明</th></tr></thead>
+      <tbody>
+        <tr><td><code>GITHUB_TOKEN</code></td><td>—</td><td>GitHub API / CLI 用トークン</td></tr>
+        <tr><td><code>GITHUB_OWNER</code></td><td>—</td><td>既定の GitHub owner</td></tr>
+        <tr><td><code>BASE_BRANCH</code></td><td><code>main</code></td><td>PR のベースブランチ</td></tr>
+        <tr><td><code>MAX_REVIEW_ITERATIONS</code></td><td><code>5</code></td><td>レビューと修正の最大反復回数</td></tr>
+        <tr><td><code>TASK_APPROVAL</code></td><td><code>true</code></td><td>Issue 起票前にタスク一覧の承認を求める（<code>--auto</code> 時はスキップ）</td></tr>
+        <tr><td><code>CLAUDE_MODEL</code></td><td><code>claude-haiku-4-5-20251001</code></td><td>Claude の共通モデル</td></tr>
+        <tr><td><code>IMPLEMENTATION_CLAUDE_MODEL</code></td><td><code>claude-sonnet-4-6</code></td><td>CodingAgent / FixAgent 用モデル</td></tr>
+        <tr><td><code>FALLBACK_LLM_PROVIDER</code></td><td><code>codex</code></td><td>利用上限時に切り替える provider</td></tr>
+        <tr><td><code>CODEX_REVIEW_ENABLED</code></td><td><code>false</code></td><td>Codex の独立レビューを有効化</td></tr>
+        <tr><td><code>RESUME_AGENT_SESSIONS</code></td><td><code>false</code></td><td>Claude セッション継続を使う</td></tr>
+      </tbody>
+    </table>
+    <p class="lead" style="margin-top:14px">全変数とモデル指定の詳細は <a href="../README.md">README.md</a> を参照してください。</p>
+  </section>
+
+  <section id="tips">
+    <h2>8. つまずきやすいポイント</h2>
+    <ul class="tight">
+      <li>PowerShell で <code>npm</code> / <code>npx</code> が実行ポリシーに止められる場合は <code>npm.cmd</code> / <code>npx.cmd</code> を使う。</li>
+      <li>状態は <code>.ecosystem/state.json</code> に保存。途中で止めても <b>Resume Phase 2</b> で再開できる。</li>
+      <li>確認用 worktree（<code>.ecosystem/worktrees/...</code>）に未コミット変更があると、安全のため自動同期が止まる。</li>
+      <li>Claude の利用上限に達したら、上限リセット後に <code>npm run dev -- phase2 --retry-failed</code> で再開。</li>
+    </ul>
+  </section>
+
+</div>
+
+<footer>
+  Auto Coding Ecosystem — first-time guide · 詳細は <a href="../README.md">README.md</a> へ
+</footer>
+</body>
+</html>

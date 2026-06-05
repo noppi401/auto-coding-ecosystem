@@ -2,6 +2,45 @@
 
 Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解、実装、レビュー、修正、PR 作成、マージまでを支援するローカル実行型の自動コーディングパイプラインです。
 
+> 初めて触る方は、仕組みと使い方を図解した HTML ガイド [`docs/guide.html`](docs/guide.html) をブラウザで開いてください。
+
+## 仕組み（パイプラインとエージェント構成）
+
+オーケストレーター（`Orchestrator`）が各エージェントを順に呼び出し、状態は `.ecosystem/state.json`（`StateManager`）に保存されます。各エージェントは `BaseAgent` を継承し、LLM provider（Claude / Codex / Gemini / local）の呼び出し・フォールバック・利用上限検知を共通化しています。
+
+### Phase 1: 計画（要件 → 設計 → タスク分解 → Issue 起票）
+
+1. **RequirementsAgent** が指示文（と既存リポジトリのコンテキスト）から要件定義を生成。
+2. **RequirementsValidationAgent** が要件をスコア評価し、閾値未満なら修正ループ（`.ecosystem/requirements-validation.md`）。
+3. **DesignAgent** が要件から設計書を生成。
+4. **DesignValidationAgent** が設計をスコア評価し、閾値未満なら修正ループ（`.ecosystem/design-validation.md`）。
+5. **TaskDecompAgent** が設計を実装可能なタスクへ分解（各タスクに複雑度 `complexity` を付与）。
+6. タスク一覧を承認（`TASK_APPROVAL`）後、**GitHubAgent** が各タスクの Issue を起票。
+
+既存リポジトリ改修時は **RepoContextSummaryAgent** がリポジトリコンテキストを一度だけ要約し、上記 1・3・5 で再利用してトークンを抑えます（`REPO_CONTEXT_SUMMARY`）。
+
+### Phase 2: 実装（タスクごとのコーディングループ）
+
+タスクを 1 件ずつ、常に「アクティブな Issue/PR は 1 つ」を保ちながら処理します。
+
+1. **GitHubAgent** がブランチを作成。
+2. **CodingAgent** がコードを生成（タスクの複雑度に応じて実装モデルを自動選択: `TASK_MODEL_ROUTING`）。
+3. **GitHubAgent** がコミットし PR を作成、Issue に PR リンクをコメント。
+4. レビューループ:
+   - ビルド/型チェック/テスト（`tsc --noEmit` / `npm test`）を worktree で実行（決定論ゲート）。
+   - **ReviewAgent**（＋任意で **CodexAgent** の独立レビュー: `CODEX_REVIEW_ENABLED`）が PR diff を評価。
+   - blocking 指摘があれば **FixAgent** が修正コミット → 再レビュー（最大 `MAX_REVIEW_ITERATIONS` 回）。
+5. 承認されたら **GitHubAgent** がマージ → Issue クローズ → 確認用 worktree を同期。
+
+レビュー時の PR diff は `PR_DIFF_MAX_CHARS` で上限・トリミングされ、コード生成へ渡す要件/設計書は `IMPL_DOC_RELEVANCE` でタスク関連部分に絞り込めます（いずれもトークン削減）。
+
+利用上限（usage limit）に達すると `FALLBACK_LLM_PROVIDER` へ自動切替、または `--retry-failed` で再開できます。
+
+### 状態と UI
+
+- 状態は `.ecosystem/state.json` に逐次保存され、`Orchestrator` ↔ Ink UI 間はイベントバス（`src/events.ts`）で連携します。
+- 対話 UI のヘッダーは実行状態（⏸ 入力待ち / ● 実行中 / ✓ 完了）を常時表示し、ログ表示中も現在処理中の Issue/タスクが分かります。
+
 ## 前提条件
 
 - Node.js 20 以上
@@ -96,6 +135,14 @@ npm run dev -- status
 ```
 
 状態は `.ecosystem/state.json` に保存されます。
+
+## 対話モードの便利機能
+
+- **依頼文の複数行入力**: 新規依頼で「エディタで複数行入力」を選ぶと `$EDITOR`（なければ Windows: notepad / 他: vi）が開き、改行込みの長い指示を入力できます。
+- **選択値の保存・復元**: プロバイダー・モデル・フェーズ等の選択は `.ecosystem/wizard-defaults.json` に保存され、次回起動時に初期選択として復元されます（`.env` / CLI 引数が優先）。
+- **処理回数の選択**: `Phase 1 + 2` 実行時に「1回 / 複数回 / リミットまで」を選べます（新規依頼・Issue 実行の両方）。
+- **タスク承認**: Issue 起票前にタスク一覧をプレビューし、承認（Enter）/ 中止（c）を選べます（`TASK_APPROVAL=false` で無効化、`--auto` 時はスキップ）。
+- **実行状態の可視化**: ヘッダーに ⏸ 入力待ち / ● 実行中 / ✓ 完了 を常時表示。ログ表示中も現在処理中の Issue が分かります。
 
 ## 指示ファイルの作り方
 
