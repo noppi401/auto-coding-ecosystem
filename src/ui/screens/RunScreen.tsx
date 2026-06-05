@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Text, useApp, useStdout } from 'ink';
+import Spinner from 'ink-spinner';
 import { theme } from '../theme.js';
 import { useEcosystemState } from '../hooks/useEcosystemState.js';
 import { useKeybinds } from '../hooks/useKeybinds.js';
@@ -135,6 +136,12 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
     focusedTask?.status === 'failed' &&
     expandedTaskId === focusedTask?.id;
 
+  // Issue #10: 「起動中 / 入力待ち」を一目で判別できるグローバル状態
+  const waitingForInput =
+    Boolean(previewTasks) ||
+    (ecoState.phase === 'awaiting_approval' && !phase2Started) ||
+    inRecovery;
+
   useKeybinds({
     up:     () => setFocusedIndex((i) => Math.max(0, i - 1)),
     down:   () => setFocusedIndex((i) => Math.min(tasks.length - 1, i + 1)),
@@ -187,6 +194,16 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
         )}
         <Text color={theme.fgFaint}>·</Text>
         <Text color={theme.review}>{phaseLabel}</Text>
+        <Text color={theme.fgFaint}>·</Text>
+        {waitingForInput ? (
+          <Text color={theme.warning} bold>⏸ 入力待ち</Text>
+        ) : orchestratorRunning ? (
+          <Text color={theme.success}><Spinner type="dots" /> 実行中</Text>
+        ) : ecoState.phase === 'completed' ? (
+          <Text color={theme.success}>✓ 完了</Text>
+        ) : (
+          <Text color={theme.fgFaint}>待機</Text>
+        )}
         <Text color={theme.fgFaint}>{elapsed(startMs)}</Text>
         {isPaused && <Text color={theme.warning}> [一時停止中]</Text>}
       </Box>
