@@ -18,6 +18,7 @@ import { GitHubAgent } from './agents/github-agent.js';
 import { isLlmUsageLimitError } from './utils/llm-errors.js';
 import { resolveTaskModel } from './utils/model-routing.js';
 import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
+import { trimPrDiff } from './utils/diff-trim.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -493,12 +494,19 @@ export class Orchestrator {
         `Review iteration ${iteration}/${this.maxReviewIterations}...`
       );
 
-      // Get PR info
-      const prDiff = await this.githubAgent.getPrDiff(
+      // Get PR info（Issue #6: 巨大 diff はトリミングしてレビュー/修正のトークンを抑える）
+      const rawPrDiff = await this.githubAgent.getPrDiff(
         state.githubOwner,
         state.githubRepo,
         prNumber
       );
+      const prDiff = trimPrDiff(rawPrDiff);
+      if (prDiff.length < rawPrDiff.length) {
+        logger.info(
+          'PR diff trimmed before review',
+          `${rawPrDiff.length} -> ${prDiff.length} chars`
+        );
+      }
       const diffUnchangedAfterFix =
         iteration > 1 && lastFixInputDiff === prDiff;
 
