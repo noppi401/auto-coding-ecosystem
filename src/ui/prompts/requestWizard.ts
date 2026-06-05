@@ -352,9 +352,28 @@ export async function showRequestWizard(
     instruction = (instructionRaw as string).trim();
   }
 
-  // 処理回数（イシュー選択時のみ）
+  // Phase mode
+  const phaseOptions = sourceIssues && sourceIssues.length > 0
+    ? [
+        { value: 'phase1+2',   label: 'Issue確認 + 実装', hint: '選択した Issue をそのまま実行' },
+        { value: 'phase1only', label: 'Issue確認のみ',    hint: '内容確認ドキュメントと実行タスクを作成して停止' },
+      ]
+    : [
+        { value: 'phase1+2',   label: 'Phase 1 + 2  (計画→実装まで自動)', hint: '推奨' },
+        { value: 'phase1only', label: 'Phase 1 only  (計画のみ・Issue起票)',  hint: ''   },
+        { value: 'phase2only', label: 'Phase 2 only  (既存の計画から再開)',   hint: ''   },
+      ];
+
+  const phaseMode = await select({
+    message: 'どのフェーズを実行しますか？',
+    options: phaseOptions,
+    initialValue: options.defaultPhaseMode ?? defaults.phaseMode ?? 'phase1+2',
+  });
+  if (isCancel(phaseMode)) { outro('中止'); process.exit(0); }
+
+  // 処理回数（Phase 2 を自動実行する場合のみ。新規依頼・Issue 実行の双方で選択可能）
   let executionCount = 1;
-  if (sourceIssues && sourceIssues.length > 0) {
+  if (phaseMode === 'phase1+2') {
     const execModeRaw = await select({
       message: '処理回数',
       options: [
@@ -382,25 +401,6 @@ export async function showRequestWizard(
       executionCount = 0;
     }
   }
-
-  // Phase mode
-  const phaseOptions = sourceIssues && sourceIssues.length > 0
-    ? [
-        { value: 'phase1+2',   label: 'Issue確認 + 実装', hint: '選択した Issue をそのまま実行' },
-        { value: 'phase1only', label: 'Issue確認のみ',    hint: '内容確認ドキュメントと実行タスクを作成して停止' },
-      ]
-    : [
-        { value: 'phase1+2',   label: 'Phase 1 + 2  (計画→実装まで自動)', hint: '推奨' },
-        { value: 'phase1only', label: 'Phase 1 only  (計画のみ・Issue起票)',  hint: ''   },
-        { value: 'phase2only', label: 'Phase 2 only  (既存の計画から再開)',   hint: ''   },
-      ];
-
-  const phaseMode = await select({
-    message: 'どのフェーズを実行しますか？',
-    options: phaseOptions,
-    initialValue: options.defaultPhaseMode ?? defaults.phaseMode ?? 'phase1+2',
-  });
-  if (isCancel(phaseMode)) { outro('中止'); process.exit(0); }
 
   // Primary provider
   const primaryProviderRaw = await select({
