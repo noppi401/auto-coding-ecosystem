@@ -19,6 +19,8 @@ export type ProjectPhase =
 
 export type ProjectMode = 'new' | 'modify';
 
+export type TaskComplexity = 'low' | 'medium' | 'high';
+
 export interface SourceIssue {
   number: number;
   title: string;
@@ -34,6 +36,8 @@ export interface Task {
   summary: string;
   branchName: string;
   targetFiles: string[];
+  /** Planning が見積もる実装の複雑度。per-task モデルルーティングに使う。 */
+  complexity?: TaskComplexity;
   status: TaskStatus;
   issueNumber?: number;
   issueUrl?: string;

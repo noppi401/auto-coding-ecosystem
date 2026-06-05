@@ -15,6 +15,7 @@ import { ReviewAgent } from './agents/review-agent.js';
 import { FixAgent } from './agents/fix-agent.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import { isLlmUsageLimitError } from './utils/llm-errors.js';
+import { resolveTaskModel } from './utils/model-routing.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -293,6 +294,25 @@ export class Orchestrator {
     logger.section('PHASE 2 COMPLETE - ALL TASKS DONE');
   }
 
+  /**
+   * per-task モデルルーティングが有効なら、タスクの complexity に応じた実装モデルを
+   * 実装系エージェント（CodingAgent / FixAgent）へ適用する。
+   * 無効時・上書き不要時は何もしない（env ベースのモデルがそのまま使われる）。
+   */
+  private _applyTaskModel(
+    agent: { setModelOverride(model: string | null): void },
+    task: Task
+  ): void {
+    const model = resolveTaskModel(task.complexity, process.env.IMPLEMENTATION_CLAUDE_MODEL);
+    if (!model) return;
+    agent.setModelOverride(model);
+    logger.info('Per-task model routing applied', {
+      task: task.title,
+      complexity: task.complexity || 'medium (default)',
+      model,
+    });
+  }
+
   private async _processTask(
     task: Task,
     state: ProjectState,
@@ -348,6 +368,7 @@ export class Orchestrator {
       process.env.IMPLEMENTATION_LLM_PROVIDER || 'claude'
     );
     const codingAgent = new CodingAgent();
+    this._applyTaskModel(codingAgent, task);
     const codeOutput = await codingAgent.generateCode(
       task,
       state.requirementsDoc,
@@ -594,6 +615,7 @@ export class Orchestrator {
         lastFixInputDiff = prDiff;
 
         const fixAgent = new FixAgent();
+        this._applyTaskModel(fixAgent, task);
         const fixOutput = await fixAgent.fixCode(
           task,
           blockingComments,
@@ -813,6 +835,7 @@ export class Orchestrator {
         ].join('\n\n'),
         branchName: `feat/issue-${sourceIssue.number}-${String(index + 1).padStart(2, '0')}-${this._slugify(title)}`,
         targetFiles: targetFiles.length > 0 ? targetFiles : issueTargetFiles,
+        complexity: task.complexity,
         status: 'pending' as const,
         reviewIteration: 0,
         createdAt: now,
@@ -990,6 +1013,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           '',
           `Task ID: ${task.id}`,
           `Branch: ${task.branchName}`,
+          ...(task.complexity ? [`Complexity: ${task.complexity}`] : []),
           '',
           'Target files:',
           ...(task.targetFiles.length > 0

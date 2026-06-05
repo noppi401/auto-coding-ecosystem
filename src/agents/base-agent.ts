@@ -31,6 +31,7 @@ export class BaseAgent {
   protected agentName: string = '';
   protected systemPromptPath: string = '';
   protected lastInvokedProvider: LlmProvider | null = null;
+  protected modelOverride: string | null = null;
 
   constructor(
     systemPromptPath: string = '',
@@ -69,6 +70,14 @@ export class BaseAgent {
 
   setSessionId(id: string | null): void {
     this.sessionId = id;
+  }
+
+  /**
+   * このエージェント呼び出しで使う Claude モデルを上書きする（実装ルートのみ有効）。
+   * per-task モデルルーティング用。null を渡すと env ベースの解決に戻る。
+   */
+  setModelOverride(model: string | null): void {
+    this.modelOverride = model;
   }
 
   protected getLastInvokedProvider(): string | null {
@@ -285,10 +294,13 @@ export class BaseAgent {
       }
 
       const route = this.getAgentRoute();
-      const model =
+      const envModel =
         route === 'implementation'
           ? (process.env.IMPLEMENTATION_CLAUDE_MODEL || process.env.CLAUDE_MODEL || 'claude-sonnet-4-6')
           : (process.env.PLANNING_CLAUDE_MODEL || process.env.CLAUDE_MODEL || 'claude-haiku-4-5-20251001');
+      // per-task ルーティングは実装ルートのみ上書きを許可する。
+      const model =
+        route === 'implementation' && this.modelOverride ? this.modelOverride : envModel;
 
       // Pass prompt via stdin to avoid Windows path/quoting issues with @file syntax.
       // --dangerously-skip-permissions prevents interactive permission prompts that would hang the process.

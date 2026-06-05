@@ -1,6 +1,7 @@
 import { BaseAgent } from './base-agent.js';
 import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { normalizeComplexity } from '../utils/model-routing.js';
 import { randomUUID } from 'crypto';
 
 export class TaskDecompAgent extends BaseAgent {
@@ -27,13 +28,19 @@ ${requirementsDoc.substring(0, reqMax)}
 DESIGN (excerpt):
 ${designDoc.substring(0, designMax)}
 
+For each task, also estimate "complexity" as one of: "low", "medium", "high".
+- low: 設定変更・小さな表示修正など、影響範囲が局所的で判断が少ないタスク
+- medium: 複数ファイルにまたがる通常の機能追加・配線
+- high: アーキテクチャ変更・横断的な改修・正しさの要求が高いタスク
+
 Respond with JSON array of tasks with this structure:
 [
   {
     "title": "Task title",
     "summary": "Task summary",
     "branchName": "feat/task-001-description",
-    "targetFiles": ["src/file1.ts", "src/file2.ts"]
+    "targetFiles": ["src/file1.ts", "src/file2.ts"],
+    "complexity": "medium"
   }
 ]`;
 
@@ -66,6 +73,7 @@ Respond with JSON array of tasks with this structure:
             t.branch_name ||
             `feat/${t.title.toLowerCase().replace(/\s+/g, '-')}`,
           targetFiles: t.targetFiles || t.target_files || [],
+          complexity: normalizeComplexity(t.complexity),
           status: 'pending' as const,
           reviewIteration: 0,
           createdAt: new Date().toISOString(),
