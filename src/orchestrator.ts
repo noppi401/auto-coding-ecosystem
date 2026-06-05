@@ -17,6 +17,7 @@ import { FixAgent } from './agents/fix-agent.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import { isLlmUsageLimitError } from './utils/llm-errors.js';
 import { resolveTaskModel } from './utils/model-routing.js';
+import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -317,6 +318,32 @@ export class Orchestrator {
     });
   }
 
+  /**
+   * Issue #8: IMPL_DOC_RELEVANCE=true のとき、要件・設計書をタスク関連部分に絞り込む。
+   * 無効時は state の全文をそのまま返す（現行挙動を維持）。
+   */
+  private _buildImplementationDocs(
+    task: Task,
+    state: ProjectState
+  ): { requirementsDoc: string; designDoc: string } {
+    if (!isDocRelevanceEnabled()) {
+      return { requirementsDoc: state.requirementsDoc, designDoc: state.designDoc };
+    }
+
+    const reqMax = Number(process.env.IMPL_DOC_MAX_CHARS || '6000');
+    const designMax = Number(process.env.IMPL_DESIGN_DOC_MAX_CHARS || '4000');
+    const requirementsDoc = extractRelevantDoc(state.requirementsDoc, task, reqMax);
+    const designDoc = extractRelevantDoc(state.designDoc, task, designMax);
+
+    logger.info('Implementation docs narrowed to task-relevant sections', {
+      task: task.title,
+      requirements: `${state.requirementsDoc.length} -> ${requirementsDoc.length} chars`,
+      design: `${state.designDoc.length} -> ${designDoc.length} chars`,
+    });
+
+    return { requirementsDoc, designDoc };
+  }
+
   private async _processTask(
     task: Task,
     state: ProjectState,
@@ -373,10 +400,11 @@ export class Orchestrator {
     );
     const codingAgent = new CodingAgent();
     this._applyTaskModel(codingAgent, task);
+    const { requirementsDoc, designDoc } = this._buildImplementationDocs(task, state);
     const codeOutput = await codingAgent.generateCode(
       task,
-      state.requirementsDoc,
-      state.designDoc,
+      requirementsDoc,
+      designDoc,
       currentTargetFiles
     );
 

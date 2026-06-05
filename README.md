@@ -175,6 +175,9 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `TASK_MODEL_LOW` | `claude-haiku-4-5-20251001` | complexity=low のタスクに使う実装モデル |
 | `TASK_MODEL_MEDIUM` | `claude-sonnet-4-6` | complexity=medium のタスクに使う実装モデル |
 | `TASK_MODEL_HIGH` | `claude-opus-4-7` | complexity=high のタスクに使う実装モデル |
+| `IMPL_DOC_RELEVANCE` | `false` | コード生成時に要件・設計書をタスク関連部分へ絞り込む（トークン削減）。`true` で有効化 |
+| `IMPL_DOC_MAX_CHARS` | `6000` | 絞り込み時に CodingAgent へ渡す要件定義の最大文字数 |
+| `IMPL_DESIGN_DOC_MAX_CHARS` | `4000` | 絞り込み時に CodingAgent へ渡す設計書の最大文字数 |
 | `GEMINI_API_KEY` | なし | Gemini API キー |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex 独立レビューを有効化するか |
 | `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
