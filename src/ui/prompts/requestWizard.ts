@@ -16,6 +16,7 @@ import type { SourceIssue } from '../../state/types.js';
 import { GitHubAgent } from '../../agents/github-agent.js';
 import { buildIssuesInstruction } from '../../utils/issue-instruction.js';
 import { loadWizardDefaults, saveWizardDefaults } from './wizardDefaults.js';
+import { editTextInEditor } from '../../utils/editor-input.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
 export type ProjectMode = 'new' | 'modify';
@@ -361,13 +362,42 @@ export async function showRequestWizard(
       : `${sourceIssues.length}件のIssue`;
     clackLog.info(`${issueSummary} を依頼内容として使用します。`);
   } else {
-    const instructionRaw = await text({
-      message: '指示を入力してください（自然言語）',
-      placeholder: 'ユーザー認証機能を追加してください...',
-      validate: (v) => ((v ?? '').trim().length >= 5 ? undefined : '5文字以上入力してください'),
+    const inputMethodRaw = await select({
+      message: '依頼文の入力方法',
+      options: [
+        { value: 'inline', label: '1行で入力',           hint: '短い指示向け' },
+        { value: 'editor', label: 'エディタで複数行入力', hint: '$EDITOR / notepad を開いて改行込みで入力' },
+      ],
+      initialValue: 'inline',
     });
-    if (isCancel(instructionRaw)) { outro('中止'); process.exit(0); }
-    instruction = (instructionRaw as string).trim();
+    if (isCancel(inputMethodRaw)) { outro('中止'); process.exit(0); }
+
+    if (inputMethodRaw === 'editor') {
+      clackLog.info('エディタを開きます。入力後は保存して閉じてください。');
+      const edited = (await editTextInEditor(
+        '# ここに依頼内容を記載してください（この行は削除してかまいません）\n'
+      )).trim();
+      if (edited.length < 5) {
+        clackLog.warn('入力が短すぎます。1行入力に切り替えます。');
+        const fallbackRaw = await text({
+          message: '指示を入力してください（自然言語）',
+          placeholder: 'ユーザー認証機能を追加してください...',
+          validate: (v) => ((v ?? '').trim().length >= 5 ? undefined : '5文字以上入力してください'),
+        });
+        if (isCancel(fallbackRaw)) { outro('中止'); process.exit(0); }
+        instruction = (fallbackRaw as string).trim();
+      } else {
+        instruction = edited;
+      }
+    } else {
+      const instructionRaw = await text({
+        message: '指示を入力してください（自然言語）',
+        placeholder: 'ユーザー認証機能を追加してください...',
+        validate: (v) => ((v ?? '').trim().length >= 5 ? undefined : '5文字以上入力してください'),
+      });
+      if (isCancel(instructionRaw)) { outro('中止'); process.exit(0); }
+      instruction = (instructionRaw as string).trim();
+    }
   }
 
   // Phase mode
