@@ -19,6 +19,9 @@ interface BusEvents {
   'tasks:set': { tasks: Task[] };
   'state:init': { state: ProjectState };
   'currentTask:change': { index: number };
+  // Issue #3: タスク分解結果の承認フロー（Ink UI 用）
+  'tasks:preview': { tasks: Task[] };
+  'tasks:approval': { approved: boolean };
 }
 
 class TypedBus extends EventEmitter {

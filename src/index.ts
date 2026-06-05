@@ -14,7 +14,8 @@ import { ensureGhAuth } from './ui/prompts/authPrompt.js';
 import { parseCodexIntelligence } from './utils/codex-options.js';
 import { buildIssuesInstruction } from './utils/issue-instruction.js';
 import { GitHubAgent } from './agents/github-agent.js';
-import type { SourceIssue } from './state/types.js';
+import { bus } from './events.js';
+import type { SourceIssue, Task } from './state/types.js';
 
 config({ path: resolve('.env') });
 
@@ -130,6 +131,43 @@ function truncate(v: string, n: number): string {
   return v.length <= n ? v : v.slice(0, n - 3) + '...';
 }
 
+// ── Issue #3: タスク承認 ───────────────────────────────────────────────────────
+
+/** タスク承認が有効か（既定: 有効。TASK_APPROVAL=false で無効化）。 */
+function taskApprovalEnabled(): boolean {
+  return process.env.TASK_APPROVAL !== 'false';
+}
+
+function printTaskPreview(tasks: Task[]): void {
+  console.log(`\nタスク分解結果（${tasks.length}件）— GitHub Issue 起票前の確認:`);
+  tasks.forEach((t, i) => {
+    const cx = t.complexity ? ` [${t.complexity}]` : '';
+    console.log(`  ${i + 1}. ${cleanOneLine(t.title)}${cx}`);
+  });
+}
+
+/** plain モード: 標準入力から y/N でタスク起票を確認する。 */
+function confirmTasksViaStdin(tasks: Task[]): Promise<boolean> {
+  printTaskPreview(tasks);
+  return new Promise((resolve) => {
+    process.stdout.write('\nこの内容で GitHub Issue を起票しますか？ [y/N]: ');
+    process.stdin.resume();
+    process.stdin.once('data', (d: Buffer) => {
+      const ans = d.toString().trim().toLowerCase();
+      process.stdin.pause();
+      resolve(ans === 'y' || ans === 'yes');
+    });
+  });
+}
+
+/** Ink モード: イベントバス経由で RunScreen に承認を委ねる。 */
+function confirmTasksViaInk(tasks: Task[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    bus.once('tasks:approval', (data: { approved: boolean }) => resolve(data.approved));
+    bus.emit('tasks:preview', { tasks });
+  });
+}
+
 function cleanOneLine(v: string): string {
   return v.replace(/\s+/g, ' ').trim();
 }
@@ -231,12 +269,24 @@ async function plainStart(
   const owner = options.ownerOverride || process.env.GITHUB_OWNER;
   if (!owner) { console.error('Error: GITHUB_OWNER not set'); process.exit(1); }
 
+  // Issue #3: --auto でなく TTY のときのみ起票前にタスク承認を求める
+  const confirmTasks =
+    !autoPhase2 && taskApprovalEnabled() && process.stdin.isTTY
+      ? confirmTasksViaStdin
+      : undefined;
+
   const orchestrator = new Orchestrator();
   const state = await orchestrator.runPhase1(instruction, owner, repoName, {
     projectMode: options.projectMode || 'new',
     sourceIssue: options.sourceIssue,
     sourceIssues: options.sourceIssues,
+    confirmTasks,
   });
+
+  if (state.phase === 'aborted') {
+    console.log('\nタスクが承認されなかったため、Issue を起票せずに中止しました。');
+    return;
+  }
 
   console.log(`\nTasks created: ${state.tasks.length}`);
   state.tasks.forEach((t, i) => {
@@ -453,11 +503,13 @@ async function uiEntry(args: string[]): Promise<void> {
   const orchestrator = new Orchestrator();
 
   await launchInk(async () => {
-    await orchestrator.runPhase1(wizard.instruction, wizard.owner, wizard.repoName, {
+    const phase1State = await orchestrator.runPhase1(wizard.instruction, wizard.owner, wizard.repoName, {
       projectMode: wizard.projectMode,
       sourceIssue: wizard.sourceIssue,
       sourceIssues: wizard.sourceIssues,
+      confirmTasks: taskApprovalEnabled() ? confirmTasksViaInk : undefined,
     });
+    if (phase1State.phase === 'aborted') return;
     if (wizard.phaseMode === 'phase1+2') {
       const count = wizard.executionCount;
       if (count === 0 || count > 1) {

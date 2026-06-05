@@ -167,6 +167,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `GITHUB_OWNER` | なし | 既定の GitHub owner |
 | `BASE_BRANCH` | `main` | PR のベースブランチ |
 | `MAX_REVIEW_ITERATIONS` | `5` | レビューと修正の最大反復回数 |
+| `TASK_APPROVAL` | `true` | 対話実行時、タスク分解結果を GitHub Issue 起票前にプレビュー・承認する。`false` で無効化（`--auto` 時は常にスキップ） |
 | `PLANNING_LLM_PROVIDER` | `claude` | Phase 1 系の LLM provider |
 | `IMPLEMENTATION_LLM_PROVIDER` | `claude` | 実装、修正系の LLM provider |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Claude CLI の共通モデル |

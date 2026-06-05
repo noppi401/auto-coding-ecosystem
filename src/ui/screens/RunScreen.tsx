@@ -10,6 +10,7 @@ import { RecoveryMenu } from '../components/RecoveryMenu.js';
 import { FooterHints } from '../components/FooterHints.js';
 import { Orchestrator } from '../../orchestrator.js';
 import { StateManager } from '../../state/manager.js';
+import { bus } from '../../events.js';
 import type { Task } from '../../state/types.js';
 
 function elapsed(startMs: number): string {
@@ -39,12 +40,26 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
   const [runError, setRunError]             = useState<string | null>(null);
   const [phase2Started, setPhase2Started]   = useState(false);
   const [orchestratorRunning, setOrchestratorRunning] = useState(false);
+  const [previewTasks, setPreviewTasks]     = useState<Task[] | null>(null);
 
   // elapsed timer
   useEffect(() => {
     const id = setInterval(() => setTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Issue #3: タスク分解結果の承認待ちプレビュー
+  useEffect(() => {
+    const onPreview = ({ tasks: previewed }: { tasks: Task[] }) => setPreviewTasks(previewed);
+    bus.on('tasks:preview', onPreview);
+    return () => { bus.off('tasks:preview', onPreview); };
+  }, []);
+
+  const respondToPreview = useCallback((approved: boolean) => {
+    if (!previewTasks) return;
+    bus.emit('tasks:approval', { approved });
+    setPreviewTasks(null);
+  }, [previewTasks]);
 
   // タスク失敗時は onComplete を呼ばず RunScreen を維持する
   const finishRun = useCallback(async () => {
@@ -124,6 +139,10 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
     up:     () => setFocusedIndex((i) => Math.max(0, i - 1)),
     down:   () => setFocusedIndex((i) => Math.min(tasks.length - 1, i + 1)),
     return: () => {
+      if (previewTasks) {
+        respondToPreview(true);
+        return;
+      }
       if (ecoState.phase === 'awaiting_approval' && !phase2Started) {
         startPhase2();
         return;
@@ -131,6 +150,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
       const id = focusedTask?.id ?? null;
       setExpandedTaskId((prev) => (prev === id ? null : id));
     },
+    c: () => { if (previewTasks) respondToPreview(false); },
     l: () => setShowLog((v) => !v),
     p: () => setIsPaused((v) => !v),
     o: () => openPr(focusedTask),
@@ -209,6 +229,28 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
           )}
         </Box>
       </Box>
+
+      {/* Issue #3: タスク承認プレビュー */}
+      {previewTasks && (
+        <Box flexDirection="column" paddingX={2} paddingY={0} borderTop borderStyle="single" borderColor={theme.accent}>
+          <Text color={theme.accent} bold>▶ タスク分解結果（{previewTasks.length}件）· Issue 起票前の確認</Text>
+          {previewTasks.slice(0, 12).map((t, i) => (
+            <Text key={t.id} color={theme.fg}>
+              {`${i + 1}. `}{t.title}
+              {t.complexity ? <Text color={theme.fgFaint}> [{t.complexity}]</Text> : null}
+            </Text>
+          ))}
+          {previewTasks.length > 12 && (
+            <Text color={theme.fgFaint}>... 他 {previewTasks.length - 12} 件</Text>
+          )}
+          <Box marginTop={0}>
+            <Text color={theme.fg} bold>Enter</Text>
+            <Text color={theme.fgMute}> で承認して Issue 起票 · </Text>
+            <Text color={theme.fg} bold>c</Text>
+            <Text color={theme.fgMute}> で中止</Text>
+          </Box>
+        </Box>
+      )}
 
       {/* Phase 2 start prompt */}
       {ecoState.phase === 'awaiting_approval' && !phase2Started && (

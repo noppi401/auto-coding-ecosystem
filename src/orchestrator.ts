@@ -74,6 +74,12 @@ export class Orchestrator {
       projectMode?: ProjectState['projectMode'];
       sourceIssue?: SourceIssue;
       sourceIssues?: SourceIssue[];
+      /**
+       * Issue #3: タスク分解後・GitHub Issue 起票前に呼ばれる承認コールバック。
+       * false を返すと Issue を起票せず Phase 1 を中止する（phase='aborted'）。
+       * 未指定なら従来どおり確認なしで起票する（--auto / 自動実行）。
+       */
+      confirmTasks?: (tasks: Task[]) => Promise<boolean>;
     } = {}
   ): Promise<ProjectState> {
     logger.section('PHASE 1: REQUIREMENTS → DESIGN → TASKS');
@@ -173,6 +179,20 @@ export class Orchestrator {
       requirementsDoc,
       designDoc
     );
+
+    // Issue #3: Issue 起票前にタスク一覧の承認を求める（コールバックがある場合のみ）
+    if (options.confirmTasks) {
+      const approved = await options.confirmTasks(tasks);
+      if (!approved) {
+        logger.warn('Task plan was not approved; aborting before GitHub issue creation');
+        const aborted = await this.stateManager.load();
+        if (aborted) {
+          aborted.phase = 'aborted';
+          await this.stateManager.save(aborted);
+          return aborted;
+        }
+      }
+    }
 
     logger.section('Step 5/5: GitHub Issue Registration');
     await this._createIssuesForTasks(tasks, owner, repo, sourceIssues[0]);
