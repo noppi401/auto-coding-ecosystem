@@ -9,6 +9,7 @@ import { RequirementsValidationAgent } from './agents/requirements-validation-ag
 import { DesignAgent } from './agents/design-agent.js';
 import { DesignValidationAgent } from './agents/design-validation-agent.js';
 import { TaskDecompAgent } from './agents/task-decomp-agent.js';
+import { RepoContextSummaryAgent } from './agents/repo-context-summary-agent.js';
 import { CodingAgent } from './agents/coding-agent.js';
 import { CodexAgent } from './agents/codex-agent.js';
 import { ReviewAgent } from './agents/review-agent.js';
@@ -120,13 +121,16 @@ export class Orchestrator {
       logger.info('Using existing repository for modification', `${owner}/${repo}`);
     }
 
+    // Issue #7: 大きなリポジトリコンテキストを一度だけ要約し、後続エージェントで再利用する。
+    const planningContext = await this._summarizeRepoContextIfEnabled(repositoryContext);
+
     if (sourceIssues.length > 0) {
       return await this._runIssueOnlyPlanning(
         sourceIssues,
         instruction,
         owner,
         repo,
-        repositoryContext
+        planningContext
       );
     }
 
@@ -136,7 +140,7 @@ export class Orchestrator {
     const requirementsDoc = await this._requirementsWithValidation(
       reqAgent,
       instruction,
-      repositoryContext
+      planningContext
     );
 
     await this.stateManager.updateRequirementsDoc(requirementsDoc);
@@ -151,7 +155,7 @@ export class Orchestrator {
     const designDoc = await this._designWithValidation(
       designAgent,
       requirementsDoc,
-      repositoryContext
+      planningContext
     );
 
     await this.stateManager.updateDesignDoc(designDoc);
@@ -686,6 +690,42 @@ export class Orchestrator {
         'Final product worktree verification passed',
         `${productSyncInfo.branch}@${productSyncInfo.commit.slice(0, 12)} ${productSyncInfo.path}`
       );
+    }
+  }
+
+  /**
+   * Issue #7: REPO_CONTEXT_SUMMARY=true のとき、リポジトリコンテキストを一度だけ要約する。
+   * 要約は後続の Requirements / Design / TaskDecomp で再利用され、巨大コンテキストの
+   * 重複送信を避けてトークンを削減する。無効時・空のときは元のコンテキストをそのまま返す。
+   * 要約に失敗した場合は元のコンテキストにフォールバックする（品質を落とさないため）。
+   */
+  private async _summarizeRepoContextIfEnabled(
+    repositoryContext?: string
+  ): Promise<string | undefined> {
+    if (!repositoryContext) return repositoryContext;
+    if (process.env.REPO_CONTEXT_SUMMARY !== 'true') return repositoryContext;
+
+    try {
+      const summaryAgent = new RepoContextSummaryAgent();
+      const summary = await summaryAgent.summarize(repositoryContext);
+      if (!summary) {
+        logger.warn('Repo context summary was empty; falling back to full context');
+        return repositoryContext;
+      }
+      logger.info(
+        'Repo context summarized for reuse',
+        `${repositoryContext.length} chars -> ${summary.length} chars`
+      );
+      return [
+        '# リポジトリコンテキスト要約',
+        '(元の全文ではなく、再利用のため要約されたコンテキストです)',
+        '',
+        summary,
+      ].join('\n');
+    } catch (err) {
+      if (isLlmUsageLimitError(err)) throw err;
+      logger.warn('Repo context summarization failed; using full context', String(err));
+      return repositoryContext;
     }
   }
 

@@ -181,6 +181,8 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | エージェントコマンドのタイムアウト |
+| `REPO_CONTEXT_SUMMARY` | `false` | modify 時にリポジトリコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用してトークンを削減する。`true` で有効化 |
+| `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | 要約エージェントに渡すコンテキストの最大文字数 |
 | `REPO_CONTEXT_MAX_FILES` | `80` | 既存 repo 読み取り時の最大ファイル数 |
 | `REPO_CONTEXT_MAX_CHARS` | `40000` | 既存 repo 読み取り時の最大文字数 |
 | `REPO_CONTEXT_FILE_MAX_CHARS` | `4000` | 1 ファイルあたりの最大文字数 |
