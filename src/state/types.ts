@@ -36,6 +36,8 @@ export interface Task {
   summary: string;
   branchName: string;
   targetFiles: string[];
+  /** コーディングエージェントが生成すべきテストファイルのパス一覧。 */
+  testFiles?: string[];
   /** Planning が見積もる実装の複雑度。per-task モデルルーティングに使う。 */
   complexity?: TaskComplexity;
   status: TaskStatus;

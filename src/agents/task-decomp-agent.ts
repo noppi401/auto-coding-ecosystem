@@ -40,9 +40,12 @@ Respond with JSON array of tasks with this structure:
     "summary": "Task summary",
     "branchName": "feat/task-001-description",
     "targetFiles": ["src/file1.ts", "src/file2.ts"],
+    "testFiles": ["src/__tests__/file1.test.ts"],
     "complexity": "medium"
   }
-]`;
+]
+
+IMPORTANT: Every task MUST include at least one entry in "testFiles". List only test files separately from implementation files in "targetFiles".`;
 
     const result = await this.invoke(prompt, 8000);
     const tasks = this.parseTasksFromResponse(result);
@@ -73,6 +76,7 @@ Respond with JSON array of tasks with this structure:
             t.branch_name ||
             `feat/${t.title.toLowerCase().replace(/\s+/g, '-')}`,
           targetFiles: t.targetFiles || t.target_files || [],
+          testFiles: t.testFiles || t.test_files || [],
           complexity: normalizeComplexity(t.complexity),
           status: 'pending' as const,
           reviewIteration: 0,
