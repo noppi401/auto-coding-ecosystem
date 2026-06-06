@@ -16,7 +16,7 @@ The Orchestrator calls each agent in sequence; state is saved to `.ecosystem/sta
 2. **RequirementsValidationAgent** scores the requirements; if below the threshold, a correction loop runs (`.ecosystem/requirements-validation.md`).
 3. **DesignAgent** generates a design document from the requirements.
 4. **DesignValidationAgent** scores the design; if below the threshold, a correction loop runs (`.ecosystem/design-validation.md`).
-5. **TaskDecompAgent** decomposes the design into implementable tasks (each task is assigned a `complexity` rating).
+5. **TaskDecompAgent** decomposes the design into implementable tasks (each task is assigned a `complexity` rating and a `testFiles` list specifying which test files must be written).
 6. After task-list approval (`TASK_APPROVAL`), **GitHubAgent** creates a GitHub Issue for each task.
 
 When modifying an existing repository, **RepoContextSummaryAgent** summarizes the repository context once and reuses it in steps 1, 3, and 5 to reduce token usage (`REPO_CONTEXT_SUMMARY`).
@@ -26,10 +26,11 @@ When modifying an existing repository, **RepoContextSummaryAgent** summarizes th
 Tasks are processed one at a time, always maintaining "one active Issue/PR at a time."
 
 1. **GitHubAgent** creates a branch.
-2. **CodingAgent** generates code (automatically selects the implementation model based on task complexity: `TASK_MODEL_ROUTING`).
+2. **CodingAgent** generates code and test files (automatically selects the implementation model based on task complexity: `TASK_MODEL_ROUTING`). If no test files are produced, it automatically retries to ensure tests are generated.
 3. **GitHubAgent** commits and creates a PR, then comments the PR link on the Issue.
 4. Review loop:
-   - Build / type-check / test (`tsc --noEmit` / `npm test`) run in a worktree (deterministic gate).
+   - Build / type-check / test (`tsc --noEmit` / `npm test`) run in a worktree (deterministic gate). On test failure, the structured failure details (file, test name, error) are passed to **FixAgent**.
+   - The PR diff is scanned for test deletions or `.skip` additions; any such changes are blocked as a deterministic guard against **FixAgent** disabling tests.
    - **ReviewAgent** (optionally + **CodexAgent** for independent review: `CODEX_REVIEW_ENABLED`) evaluates the PR diff.
    - If there are blocking findings, **FixAgent** makes a fix commit → re-review (up to `MAX_REVIEW_ITERATIONS` times).
 5. Once approved, **GitHubAgent** merges → closes the Issue → syncs the verification worktree.
@@ -256,6 +257,10 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Common Gemini model (default for both planning and implementation) |
 | `PLANNING_GEMINI_MODEL` | `GEMINI_MODEL` | Gemini model for planning |
 | `IMPLEMENTATION_GEMINI_MODEL` | `GEMINI_MODEL` | Gemini model for implementation |
+| `BUILD_CHECK_ENABLED` | `true` | Enable build / type-check / test after PR creation |
+| `COVERAGE_CHECK_ENABLED` | `false` | Enable coverage measurement (`true` to enable). Requires a `test:coverage` script in `package.json` |
+| `COVERAGE_LINE_THRESHOLD` | `70` | Line coverage threshold (%). Below this adds a suggestion comment |
+| `COVERAGE_BRANCH_THRESHOLD` | `60` | Branch coverage threshold (%). Below this adds a suggestion comment |
 | `CODEX_REVIEW_ENABLED` | `false` | Enable independent Codex review |
 | `CODEX_MODEL` | Codex CLI default | Model passed to Codex CLI |
 | `CODEX_INTELLIGENCE` | Codex CLI default | Codex CLI `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
@@ -276,6 +281,7 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 ```bash
 npm run build
 npx tsc --noEmit
+npm test
 npm run dev -- status
 ```
 

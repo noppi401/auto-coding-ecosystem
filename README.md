@@ -16,7 +16,7 @@ Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解�
 2. **RequirementsValidationAgent** が要件をスコア評価し、閾値未満なら修正ループ（`.ecosystem/requirements-validation.md`）。
 3. **DesignAgent** が要件から設計書を生成。
 4. **DesignValidationAgent** が設計をスコア評価し、閾値未満なら修正ループ（`.ecosystem/design-validation.md`）。
-5. **TaskDecompAgent** が設計を実装可能なタスクへ分解（各タスクに複雑度 `complexity` を付与）。
+5. **TaskDecompAgent** が設計を実装可能なタスクへ分解（各タスクに複雑度 `complexity` と、書くべきテストファイル一覧 `testFiles` を付与）。
 6. タスク一覧を承認（`TASK_APPROVAL`）後、**GitHubAgent** が各タスクの Issue を起票。
 
 既存リポジトリ改修時は **RepoContextSummaryAgent** がリポジトリコンテキストを一度だけ要約し、上記 1・3・5 で再利用してトークンを抑えます（`REPO_CONTEXT_SUMMARY`）。
@@ -26,10 +26,11 @@ Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解�
 タスクを 1 件ずつ、常に「アクティブな Issue/PR は 1 つ」を保ちながら処理します。
 
 1. **GitHubAgent** がブランチを作成。
-2. **CodingAgent** がコードを生成（タスクの複雑度に応じて実装モデルを自動選択: `TASK_MODEL_ROUTING`）。
+2. **CodingAgent** がコードとテストファイルを生成（タスクの複雑度に応じて実装モデルを自動選択: `TASK_MODEL_ROUTING`）。テストファイルが出力されなかった場合はリトライして確実に生成する。
 3. **GitHubAgent** がコミットし PR を作成、Issue に PR リンクをコメント。
 4. レビューループ:
-   - ビルド/型チェック/テスト（`tsc --noEmit` / `npm test`）を worktree で実行（決定論ゲート）。
+   - ビルド/型チェック/テスト（`tsc --noEmit` / `npm test`）を worktree で実行（決定論ゲート）。テスト失敗時は失敗ファイル・テスト名・エラーを構造化して **FixAgent** へ渡す。
+   - PR diff に対してテストファイルの削除・`.skip` 追加などの無効化を自動検出し、blocking としてブロック（**FixAgent** によるテスト消去を防止）。
    - **ReviewAgent**（＋任意で **CodexAgent** の独立レビュー: `CODEX_REVIEW_ENABLED`）が PR diff を評価。
    - blocking 指摘があれば **FixAgent** が修正コミット → 再レビュー（最大 `MAX_REVIEW_ITERATIONS` 回）。
 5. 承認されたら **GitHubAgent** がマージ → Issue クローズ → 確認用 worktree を同期。
@@ -256,6 +257,10 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini の共通モデル（planning / implementation 両方の既定） |
 | `PLANNING_GEMINI_MODEL` | `GEMINI_MODEL` | planning 系で使う Gemini モデル |
 | `IMPLEMENTATION_GEMINI_MODEL` | `GEMINI_MODEL` | implementation 系で使う Gemini モデル |
+| `BUILD_CHECK_ENABLED` | `true` | PR 後のビルド/型チェック/テスト実行を有効化するか |
+| `COVERAGE_CHECK_ENABLED` | `false` | カバレッジ計測を有効化（`true` で有効化）。`package.json` に `test:coverage` スクリプトが必要 |
+| `COVERAGE_LINE_THRESHOLD` | `70` | ラインカバレッジ閾値（%）。未満なら suggestion コメント |
+| `COVERAGE_BRANCH_THRESHOLD` | `60` | 分岐カバレッジ閾値（%）。未満なら suggestion コメント |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex 独立レビューを有効化するか |
 | `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
 | `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
@@ -276,6 +281,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 ```bash
 npm run build
 npx tsc --noEmit
+npm test
 npm run dev -- status
 ```
 

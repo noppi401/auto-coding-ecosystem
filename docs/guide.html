@@ -235,7 +235,7 @@
       </div>
       <div class="agent plan">
         <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>TaskDecompAgent</h4>
-        <p><span class="ja">設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）を付与。</span><span class="en">Decomposes design into implementable tasks. Assigns complexity (low/medium/high) to each task.</span></p>
+        <p><span class="ja">設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）と書くべきテストファイル一覧（<code>testFiles</code>）を付与。</span><span class="en">Decomposes design into implementable tasks. Assigns complexity (low/medium/high) and a <code>testFiles</code> list to each task.</span></p>
       </div>
       <div class="agent infra">
         <div class="role"><span class="ja">トークン削減</span><span class="en">Token reduction</span></div><h4>RepoContextSummaryAgent</h4>
@@ -243,7 +243,7 @@
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>CodingAgent</h4>
-        <p><span class="ja">タスクごとにコードを生成。複雑度に応じて実装モデルを自動選択可能。</span><span class="en">Generates code per task. Can automatically select the implementation model by complexity.</span></p>
+        <p><span class="ja">タスクごとにコードとテストファイルを生成。複雑度に応じて実装モデルを自動選択可能。テストファイルが未生成の場合はリトライして確実に出力する。</span><span class="en">Generates code and test files per task. Auto-selects implementation model by complexity. Automatically retries if no test files are produced.</span></p>
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>ReviewAgent</h4>
@@ -255,7 +255,7 @@
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>FixAgent</h4>
-        <p><span class="ja">blocking 指摘を受けてコードを修正し、再コミットする。</span><span class="en">Applies fixes for blocking findings and re-commits.</span></p>
+        <p><span class="ja">blocking 指摘を受けてコードを修正し、再コミットする。テストファイルの削除・<code>.skip</code> 追加・アサーション弱体化は禁止（Orchestrator が差分から自動検出してブロック）。</span><span class="en">Applies fixes for blocking findings and re-commits. Deleting test files, adding <code>.skip</code>, or weakening assertions is forbidden (Orchestrator auto-detects and blocks such changes in the diff).</span></p>
       </div>
       <div class="agent infra">
         <div class="role"><span class="ja">連携</span><span class="en">Integration</span></div><h4>GitHubAgent</h4>
@@ -296,7 +296,7 @@
           <div class="arrow">→</div>
           <div class="step"><b>Coding</b><span><span class="ja">コード生成→コミット→PR</span><span class="en">Generate → commit → PR</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b><span class="ja">ビルド/テスト</span><span class="en">Build/Test</span></b><span>tsc / npm test</span></div>
+          <div class="step"><b><span class="ja">ビルド/テスト</span><span class="en">Build/Test</span></b><span>tsc / npm test<br><span class="ja" style="font-size:.8em;color:var(--fg-dim)">失敗時は構造化フィードバック</span><span class="en" style="font-size:.8em;color:var(--fg-dim)">structured failure details</span></span></div>
           <div class="arrow">→</div>
           <div class="step"><b>Review (+Codex)</b><span><span class="ja">差分レビュー</span><span class="en">Diff review</span></span></div>
           <div class="arrow">→</div>
@@ -304,7 +304,7 @@
           <div class="arrow">→</div>
           <div class="step"><b><span class="ja">マージ→Issue close</span><span class="en">Merge → close Issue</span></b><span><span class="ja">worktree 同期</span><span class="en">sync worktree</span></span></div>
         </div>
-        <div class="loop-note"><span class="ja">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。</span><span class="en">※ Review → Fix loops up to <code>MAX_REVIEW_ITERATIONS</code> times until approved. Always "one active Issue/PR at a time."</span></div>
+        <div class="loop-note"><span class="ja">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。テスト削除・<code>.skip</code> 追加を差分から自動検出してブロック。</span><span class="en">※ Review → Fix loops up to <code>MAX_REVIEW_ITERATIONS</code> times until approved. Always "one active Issue/PR at a time." Test deletions and <code>.skip</code> additions are auto-detected from the diff and blocked.</span></div>
       </div>
     </div>
     <div class="note"><span class="ja">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</span><span class="en">When the usage limit is reached, the system auto-switches to <code>FALLBACK_LLM_PROVIDER</code>, or you can resume later with <code>--retry-failed</code>.</span></div>
