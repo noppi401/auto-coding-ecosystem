@@ -35,9 +35,10 @@ export class CodingAgent extends BaseAgent {
     const chunkSize = Number(process.env.CODING_FILE_CHUNK_SIZE || '4');
 
     if (targetFiles.length <= chunkSize) {
-      const output = await this._generateChunk(
+      let output = await this._generateChunk(
         task, requirementsDoc, designDoc, truncatedCurrentFiles, targetFiles, null
       );
+      output = await this._ensureTestFiles(task, requirementsDoc, designDoc, output, currentFileMax);
       logger.info('CodingAgent completed', { fileCount: output.files.length });
       return output;
     }
@@ -71,13 +72,55 @@ export class CodingAgent extends BaseAgent {
       if (!firstOutput) firstOutput = chunkOutput;
     }
 
-    logger.info('CodingAgent completed (chunked)', { fileCount: allFiles.length });
-    return {
+    let mergedOutput: CodeOutput = {
       files: allFiles,
       commitMessage: firstOutput!.commitMessage,
       prTitle: firstOutput!.prTitle,
       prBody: firstOutput!.prBody,
     };
+    mergedOutput = await this._ensureTestFiles(task, requirementsDoc, designDoc, mergedOutput, currentFileMax);
+    logger.info('CodingAgent completed (chunked)', { fileCount: mergedOutput.files.length });
+    return mergedOutput;
+  }
+
+  private async _ensureTestFiles(
+    task: Task,
+    requirementsDoc: string,
+    designDoc: string,
+    output: CodeOutput,
+    currentFileMax: number
+  ): Promise<CodeOutput> {
+    const TEST_FILE_PATTERN = /\.(test|spec)\.[jt]sx?$/i;
+    const hasTestFiles = output.files.some(f => TEST_FILE_PATTERN.test(f.path));
+
+    if (hasTestFiles) return output;
+
+    const expectedTestFiles = (task.testFiles ?? []).filter(
+      p => !output.files.some(f => f.path === p)
+    );
+
+    if (expectedTestFiles.length === 0) {
+      logger.warn('CodingAgent: generated no test files and no testFiles specified in task');
+      return output;
+    }
+
+    logger.warn('CodingAgent: no test files in output; generating test-only chunk', expectedTestFiles.join(', '));
+
+    const implFilesAsContext: Record<string, string> = {};
+    for (const f of output.files) {
+      implFilesAsContext[f.path] = f.content.substring(0, currentFileMax);
+    }
+
+    const testOutput = await this._generateChunk(
+      task,
+      requirementsDoc,
+      designDoc,
+      implFilesAsContext,
+      expectedTestFiles,
+      null
+    );
+
+    return { ...output, files: [...output.files, ...testOutput.files] };
   }
 
   private async _generateChunk(
