@@ -307,7 +307,7 @@ auto-coding-ecosystem/
 ✅ **Already configured:**
 ```
 GITHUB_TOKEN=ghp_xxx           (your token)
-GITHUB_OWNER=noppi401          (your username)
+GITHUB_OWNER=your-username      (your username)
 BASE_BRANCH=main
 MAX_REVIEW_ITERATIONS=3
 ECOSYSTEM_STATE_PATH=.ecosystem/state.json

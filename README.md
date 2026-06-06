@@ -265,17 +265,17 @@ npx.cmd tsc --noEmit
 
 ## 生成されたアプリの確認コマンド
 
-ecosystem が生成した worktree は `.ecosystem/worktrees/<owner>/<repo>/...` 配下に作られます。今回の TRPG ターミナルでは、実行元として使う作業ツリーは次です。
+ecosystem が生成した worktree は `.ecosystem/worktrees/<owner>/<repo>/...` 配下に作られます。例として、実行元として使う作業ツリーは次のようになります（`<owner>` / `<repo>` は対象に置き換えてください）。
 
 ```powershell
-cd .ecosystem\worktrees\noppi401\trpg_terminal\__context
+cd .ecosystem\worktrees\<owner>\<repo>\__context
 ```
 
 Phase 2 では PR マージ直後と完了直前に、この `__context` worktree を `origin/<BASE_BRANCH>` へ同期します。同期できない場合は Phase 2 を completed にせず失敗として扱います。
 
 `__context` に未コミット変更がある場合は、安全のため自動同期を止めます。手元の変更を退避またはコミットしてから再実行してください。
 
-また、`~/Documents/Products/<repo>` が存在する場合は、そこも確認用 checkout として同じタイミングで同期します。今回の TRPG ターミナルでは次が対象です。
+また、`~/Documents/Products/<repo>` が存在する場合は、そこも確認用 checkout として同じタイミングで同期します。例えば次のようなパスが対象です。
 
 ```powershell
 C:\path\to\Products\<repo>
@@ -294,6 +294,8 @@ ECOSYSTEM_PRODUCT_ROOT=C:\path\to\Products
 ```
 
 Products 側に未コミット変更がある場合も、安全のため同期を止めます。
+
+以下は、生成アプリが backend / frontend 構成（Prisma 利用）の場合の確認手順の一例です。生成物の構成に合わせて読み替えてください。
 
 依存関係の導入:
 
@@ -321,9 +323,9 @@ cd ..\backend
 npx.cmd prisma migrate deploy
 ```
 
-`DATABASE_URL` が未設定の場合、`prisma migrate deploy` は失敗します。その場合は、TRPG ターミナル側の `.env` に `DATABASE_URL` を設定するか、通常の起動スクリプトで環境変数が読み込まれる状態にしてから再実行してください。
+`DATABASE_URL` が未設定の場合、`prisma migrate deploy` は失敗します。その場合は、生成アプリ側の `.env` に `DATABASE_URL` を設定するか、通常の起動スクリプトで環境変数が読み込まれる状態にしてから再実行してください。
 
-TRPG ターミナルを通常起動する場合:
+生成アプリを通常起動する場合（例）:
 
 ```powershell
 cd ..
