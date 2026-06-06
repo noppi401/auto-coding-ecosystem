@@ -20,6 +20,7 @@ import { resolveTaskModel } from './utils/model-routing.js';
 import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
 import { trimPrDiff } from './utils/diff-trim.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
+import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -1313,6 +1314,44 @@ ${repositoryContext || '(repository context was not loaded)'}
         } else {
           logger.info('npm test passed');
         }
+      }
+    }
+
+    // Coverage check (opt-in via COVERAGE_CHECK_ENABLED=true)
+    if (process.env.COVERAGE_CHECK_ENABLED === 'true') {
+      const coveragePkg = pkgFiles?.['package.json']
+        ? (() => { try { return JSON.parse(pkgFiles['package.json']); } catch { return null; } })()
+        : null;
+      const coverageScript: string | undefined = coveragePkg?.scripts?.['test:coverage'];
+      if (coverageScript) {
+        const lineThreshold = Number(process.env.COVERAGE_LINE_THRESHOLD ?? '70');
+        const branchThreshold = Number(process.env.COVERAGE_BRANCH_THRESHOLD ?? '60');
+        logger.info('Running coverage check...');
+        const coverageResult = await githubAgent.runCommandInWorktree(
+          state.githubOwner, state.githubRepo, task.branchName,
+          'npm', ['run', 'test:coverage'], 180000
+        );
+        const coverageOutput = (coverageResult.stdout + '\n' + coverageResult.stderr).trim();
+        const summary = parseCoverageOutput(coverageOutput);
+        if (summary) {
+          const lineOk = summary.lines >= lineThreshold;
+          const branchOk = summary.branches >= branchThreshold;
+          if (!lineOk || !branchOk) {
+            logger.warn('Coverage below threshold', `lines: ${summary.lines}%, branches: ${summary.branches}%`);
+            comments.push({
+              path: 'package.json',
+              line: 1,
+              body: formatCoverageComment(summary, lineThreshold, branchThreshold),
+              severity: 'suggestion',
+            });
+          } else {
+            logger.info('Coverage check passed', `lines: ${summary.lines}%, branches: ${summary.branches}%`);
+          }
+        } else {
+          logger.warn('Could not parse coverage output; skipping threshold check');
+        }
+      } else {
+        logger.info('COVERAGE_CHECK_ENABLED=true but no test:coverage script found; skipping');
       }
     }
 
