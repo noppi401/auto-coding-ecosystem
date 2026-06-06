@@ -1,8 +1,8 @@
-# Auto Coding Ecosystem
+# Auto Coding Ecosystem (ACE / エース)
 
 [🇯🇵 日本語](README.md) | [🇺🇸 English](README.en.md)
 
-Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解、実装、レビュー、修正、PR 作成、マージまでを支援するローカル実行型の自動コーディングパイプラインです。
+Auto Coding Ecosystem、略称 **ACE（エース）** は、Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解、実装、レビュー、修正、PR 作成、マージまでを支援するローカル実行型の自動コーディングパイプラインです。
 
 > 初めて触る方は、仕組みと使い方を図解した HTML ガイド [`docs/guide.html`](docs/guide.html) をブラウザで開いてください。
 

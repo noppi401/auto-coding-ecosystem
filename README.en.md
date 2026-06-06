@@ -1,8 +1,8 @@
-# Auto Coding Ecosystem
+# Auto Coding Ecosystem (ACE)
 
 [🇯🇵 日本語](README.md) | [🇺🇸 English](README.en.md)
 
-A locally-executed automated coding pipeline that uses Claude / Codex / GitHub CLI to assist with requirements definition, design, task decomposition, implementation, review, fixing, PR creation, and merging.
+Auto Coding Ecosystem, abbreviated **ACE** and pronounced "ace", is a locally-executed automated coding pipeline that uses Claude / Codex / GitHub CLI to assist with requirements definition, design, task decomposition, implementation, review, fixing, PR creation, and merging.
 
 > First-time users: open the illustrated HTML guide [`docs/guide.html`](docs/guide.html) in your browser for a visual walkthrough.
 
