@@ -60,6 +60,10 @@ function applyLlmOptions(args: string[]): void {
     } else if (args[i] === '--codex-model' && i + 1 < args.length) {
       process.env.CODEX_MODEL = args[i + 1];
       i++;
+    } else if (args[i] === '--gemini-model' && i + 1 < args.length) {
+      process.env.PLANNING_GEMINI_MODEL = args[i + 1];
+      process.env.IMPLEMENTATION_GEMINI_MODEL = args[i + 1];
+      i++;
     } else if (
       (args[i] === '--codex-intelligence' || args[i] === '--codex-reasoning-effort') &&
       i + 1 < args.length
@@ -541,6 +545,9 @@ async function uiEntry(args: string[]): Promise<void> {
   process.env.IMPLEMENTATION_LLM_PROVIDER = wizard.primaryProvider;
   process.env.FALLBACK_LLM_PROVIDER = wizard.fallbackProvider;
   applyWizardCodexOptions(wizard);
+  if (wizard.geminiModel) {
+    process.env.GEMINI_MODEL = wizard.geminiModel;
+  }
 
   const orchestrator = new Orchestrator();
 

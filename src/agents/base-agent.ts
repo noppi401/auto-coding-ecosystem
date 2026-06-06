@@ -371,14 +371,19 @@ export class BaseAgent {
       // コマンドを実行し、fullPrompt を標準入力から流し込みます
       const stdout = await this._execCommand('gemini', args, fullPrompt);
 
-      let jsonStr = stdout;
-      const firstCurly = stdout.indexOf('{');
-      const lastCurly = stdout.lastIndexOf('}');
-      if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
-        jsonStr = stdout.substring(firstCurly, lastCurly + 1);
+      let output: any;
+      try {
+        let jsonStr = stdout;
+        const firstCurly = stdout.indexOf('{');
+        const lastCurly = stdout.lastIndexOf('}');
+        if (firstCurly !== -1 && lastCurly !== -1 && lastCurly > firstCurly) {
+          jsonStr = stdout.substring(firstCurly, lastCurly + 1);
+        }
+        output = JSON.parse(jsonStr);
+      } catch {
+        // Markdown コードブロックや二重エスケープを含む応答へのフォールバック
+        output = this.robustJsonParse(stdout);
       }
-
-      const output = JSON.parse(jsonStr);
       // JSON出力時のプロパティ名はCLIの実装に依存しますが、一般的な content/result を想定
       const result = output.content || output.result || output.text || 
         (output.candidates && output.candidates[0]?.content?.parts?.[0]?.text) ||

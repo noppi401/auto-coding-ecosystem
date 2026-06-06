@@ -287,8 +287,67 @@
     <div class="note">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</div>
   </section>
 
+  <section id="internals">
+    <h2>4. システムの内部構造（SDK / CLI と実行の仕組み）</h2>
+    <p class="lead">各エージェントが「どうやって AI を呼び出し、エコシステムとして連携しているか」の技術的な解説です。</p>
+
+    <h3>4.1 共通基盤 <code>BaseAgent</code> と呼び出し方式</h3>
+    <div class="card">
+      <p style="margin-top:0">すべてのエージェント（RequirementsAgent / DesignAgent / CodingAgent / ReviewAgent …）は <code>BaseAgent</code> を継承します。<code>BaseAgent.invoke()</code> が provider を解決し、対応するメソッド（<code>invokeClaude</code> / <code>invokeCodex</code> / <code>invokeGemini</code> / <code>invokeLocal</code>）へ振り分けます。</p>
+      <p>本ツールは各プロバイダーの<b>公式 CLI をサブプロセスとして起動</b>し、プロンプトを <b>標準入力（stdin）</b>で渡して結果を受け取る方式です（ローカル LLM のみ OpenAI 互換 HTTP API を直接呼び出し）。特定言語の SDK には依存せず、ローカルにインストール済みの CLI 認証・設定をそのまま利用します。Windows のコマンド長制限やクォート事故を避けるため、プロンプトは引数ではなく stdin、system prompt は一時ファイル（<code>--system-prompt-file</code>）で渡します。</p>
+    </div>
+
+    <h3>4.2 プロバイダー別の呼び出し</h3>
+    <table>
+      <thead><tr><th>provider</th><th>呼び出し方法</th><th>モデル指定</th><th>応答形式</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>Claude</b><br><span class="pill">既定</span></td>
+          <td><code>claude -p --model &lt;id&gt; --output-format json --dangerously-skip-permissions</code>（プロンプトは stdin）。<code>RESUME_AGENT_SESSIONS=true</code> 時は <code>--continue &lt;session_id&gt;</code> で会話を継続。</td>
+          <td><code>PLANNING_CLAUDE_MODEL</code> / <code>IMPLEMENTATION_CLAUDE_MODEL</code>（無ければ <code>CLAUDE_MODEL</code>）</td>
+          <td>JSON（<code>result</code> / <code>session_id</code> / <code>is_error</code>）</td>
+        </tr>
+        <tr>
+          <td><b>Codex</b></td>
+          <td><code>codex exec --skip-git-repo-check --sandbox &lt;mode&gt; --output-last-message &lt;file&gt;</code>。最終メッセージをファイルから回収。</td>
+          <td><code>CODEX_MODEL</code> / <code>CODEX_INTELLIGENCE</code>（reasoning effort）</td>
+          <td>最終メッセージ（テキスト）</td>
+        </tr>
+        <tr>
+          <td><b>Gemini</b></td>
+          <td><code>gemini -m &lt;id&gt; -o json -p</code>（プロンプトは stdin。Windows のコマンド長制限を回避）。</td>
+          <td><code>PLANNING_GEMINI_MODEL</code> / <code>IMPLEMENTATION_GEMINI_MODEL</code>（無ければ <code>GEMINI_MODEL</code>、既定 <code>gemini-2.5-flash</code>）</td>
+          <td>JSON（<code>content</code>/<code>result</code>/<code>text</code>/<code>candidates</code> を順に解釈。Markdown コードブロック等は <code>robustJsonParse</code> でフォールバック解析）</td>
+        </tr>
+        <tr>
+          <td><b>Local</b></td>
+          <td>OpenAI 互換エンドポイント <code>{LOCAL_LLM_URL}/chat/completions</code> へ HTTP POST（Ollama / LM Studio 等）。</td>
+          <td><code>LOCAL_LLM_MODEL</code></td>
+          <td>JSON（<code>choices[].message.content</code>）</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="note"><b>Gemini を使うには</b>：<code>gemini</code> CLI をインストール・認証し、<code>.env</code> に <code>GEMINI_API_KEY</code> を設定します。provider はウィザード（実行AI 第1/第2候補）、または <code>--provider gemini</code> / <code>--fallback-provider gemini</code> で選択。モデルはウィザードの「Gemini モデル」入力、または <code>--gemini-model &lt;id&gt;</code> / 環境変数で指定します。利用上限（<code>QUOTA_EXHAUSTED</code> など）を検知すると、利用上限エラーとして扱いフォールバックします。</div>
+
+    <h3>4.3 ルーティング・フォールバック・堅牢性</h3>
+    <ul class="tight">
+      <li><b>役割振り分け</b>: エージェント名が <code>IMPLEMENTATION_AGENTS</code>（既定 <code>CodingAgent,FixAgent</code>）に含まれれば implementation ルート、それ以外は planning ルートとして provider / モデルを解決。</li>
+      <li><b>per-task モデル上書き</b>: <code>TASK_MODEL_ROUTING</code> 有効時、タスクの複雑度に応じた Claude モデルを <code>setModelOverride()</code> で実装系エージェントに適用（env を汚さない）。</li>
+      <li><b>フォールバック</b>: 呼び出しが利用上限に達すると当該 provider を「上限到達」として記録し、<code>FALLBACK_LLM_PROVIDER</code> へ自動切替。<code>AI_TOKEN_MODE</code> を特定 provider に固定した場合はフォールバックせず停止し、後で <code>--retry-failed</code> で再開。</li>
+      <li><b>応答の堅牢パース</b>: <code>robustJsonParse</code> が Markdown コードブロック・二重エスケープ・テンプレートリテラル・文字列内の生改行などを吸収して JSON 化。</li>
+      <li><b>タイムアウト</b>: 各 CLI 呼び出しは <code>AGENT_COMMAND_TIMEOUT_MS</code>（既定 15 分）で打ち切り。</li>
+    </ul>
+
+    <h3>4.4 連携・状態・検証</h3>
+    <ul class="tight">
+      <li><b>GitHubAgent</b>: <code>gh</code> CLI と git を用い、リポジトリ作成 / ブランチ / コミット / Issue / PR / マージ / コメントを実行。さらに <code>.ecosystem/worktrees/...</code> の作業ツリーで <code>tsc --noEmit</code> や <code>npm test</code> を回し、結果を「決定論的ゲート」としてレビューに反映。</li>
+      <li><b>StateManager</b>: 進行状態を <code>.ecosystem/state.json</code> へ逐次保存（要件・設計・タスク・各 PR/Issue・エージェントの session_id 等）。中断後の Resume はここから復元。</li>
+      <li><b>イベントバス</b>（<code>src/events.ts</code>）: Orchestrator の進捗（phase 変化 / タスク更新 / ログ / タスク承認）を Ink UI へ配信。UI と実行ロジックは疎結合。</li>
+    </ul>
+  </section>
+
   <section id="setup">
-    <h2>4. セットアップ</h2>
+    <h2>5. セットアップ</h2>
     <div class="card">
       <p style="margin-top:0"><b>前提</b>: Node.js 20+ / Claude CLI（<code>claude</code>）/ GitHub CLI（<code>gh auth login</code> 済み）/ 任意で Codex・Gemini CLI。</p>
 <pre><span class="c"># 依存をインストール</span>
@@ -303,7 +362,7 @@ cp .env.example .env
   </section>
 
   <section id="usage">
-    <h2>5. 使い方</h2>
+    <h2>6. 使い方</h2>
 
     <h3>対話モードで起動（おすすめ）</h3>
 <pre>npm run dev</pre>
@@ -337,12 +396,13 @@ npm run dev -- status</pre>
     <h3>モデルを指定する</h3>
 <pre>npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
 npm run dev -- phase2 --impl-model claude-sonnet-4-6
-npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intelligence high</pre>
+npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intelligence high
+npm run dev -- start ... --provider gemini --gemini-model gemini-2.5-flash</pre>
     <p class="lead">CLI 引数は <code>.env</code> より優先されます。Planning（計画系）は安価なモデル、Implementation（実装系）はやや高性能なモデル、という使い分けが基本です。</p>
   </section>
 
   <section id="token">
-    <h2>6. トークン削減オプション</h2>
+    <h2>7. トークン削減オプション</h2>
     <p class="lead">いずれも既定は無効（現行挙動を維持）で、環境変数で有効化する opt-in 方式です。</p>
     <table>
       <thead><tr><th>環境変数</th><th>既定</th><th>効果</th></tr></thead>
@@ -372,7 +432,7 @@ npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intellig
   </section>
 
   <section id="env">
-    <h2>7. 主な環境変数（抜粋）</h2>
+    <h2>8. 主な環境変数（抜粋）</h2>
     <table>
       <thead><tr><th>変数</th><th>既定</th><th>説明</th></tr></thead>
       <tbody>
@@ -385,6 +445,7 @@ npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intellig
         <tr><td><code>IMPLEMENTATION_CLAUDE_MODEL</code></td><td><code>claude-sonnet-4-6</code></td><td>CodingAgent / FixAgent 用モデル</td></tr>
         <tr><td><code>FALLBACK_LLM_PROVIDER</code></td><td><code>codex</code></td><td>利用上限時に切り替える provider</td></tr>
         <tr><td><code>CODEX_REVIEW_ENABLED</code></td><td><code>false</code></td><td>Codex の独立レビューを有効化</td></tr>
+        <tr><td><code>GEMINI_API_KEY</code> / <code>GEMINI_MODEL</code></td><td><code>gemini-2.5-flash</code></td><td>Gemini を provider に使う際の API キーと共通モデル</td></tr>
         <tr><td><code>RESUME_AGENT_SESSIONS</code></td><td><code>false</code></td><td>Claude セッション継続を使う</td></tr>
       </tbody>
     </table>
@@ -392,7 +453,7 @@ npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intellig
   </section>
 
   <section id="tips">
-    <h2>8. つまずきやすいポイント</h2>
+    <h2>9. つまずきやすいポイント</h2>
     <ul class="tight">
       <li>PowerShell で <code>npm</code> / <code>npx</code> が実行ポリシーに止められる場合は <code>npm.cmd</code> / <code>npx.cmd</code> を使う。</li>
       <li>状態は <code>.ecosystem/state.json</code> に保存。途中で止めても <b>Resume Phase 2</b> で再開できる。</li>

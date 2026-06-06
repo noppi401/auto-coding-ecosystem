@@ -198,6 +198,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `--planning-model <id>` | `PLANNING_CLAUDE_MODEL` | 要件、設計、タスク分解側のモデル |
 | `--impl-model <id>` | `IMPLEMENTATION_CLAUDE_MODEL` | CodingAgent / FixAgent 側のモデル |
 | `--codex-model <id>` | `CODEX_MODEL` | Codex CLI に渡すモデル |
+| `--gemini-model <id>` | `PLANNING_GEMINI_MODEL` / `IMPLEMENTATION_GEMINI_MODEL` | Gemini CLI に渡すモデル（planning と implementation の両方を一括設定） |
 | `--codex-intelligence <low\|medium\|high\|xhigh>` | `CODEX_INTELLIGENCE` | Codex CLI の `model_reasoning_effort` |
 
 ### タスク複雑度に応じたモデル自動選択（トークン削減）
@@ -229,6 +230,9 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `PR_DIFF_MAX_CHARS` | `30000` | レビュー/修正に渡す PR diff の最大文字数。超過時はトリミング。`0` で無効化 |
 | `PR_DIFF_EXCLUDE` | `package-lock.json,pnpm-lock.yaml,yarn.lock` | PR diff から除外するファイル名（カンマ区切り） |
 | `GEMINI_API_KEY` | なし | Gemini API キー |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini の共通モデル（planning / implementation 両方の既定） |
+| `PLANNING_GEMINI_MODEL` | `GEMINI_MODEL` | planning 系で使う Gemini モデル |
+| `IMPLEMENTATION_GEMINI_MODEL` | `GEMINI_MODEL` | implementation 系で使う Gemini モデル |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex 独立レビューを有効化するか |
 | `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
 | `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |

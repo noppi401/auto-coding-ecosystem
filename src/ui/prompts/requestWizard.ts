@@ -36,6 +36,7 @@ export interface WizardResult {
   fallbackProvider: LlmProviderChoice;
   codexModel?: string;
   codexIntelligence?: CodexIntelligenceChoice;
+  geminiModel?: string;
   sourceIssue?: SourceIssue;
   sourceIssues?: SourceIssue[];
   /** 1=1回, N>1=N回繰り返し, 0=リミットまで */
@@ -255,6 +256,7 @@ export async function showRequestWizard(
     primaryProvider: asProvider(process.env.PLANNING_LLM_PROVIDER) ?? persisted.primaryProvider,
     fallbackProvider: asProvider(process.env.FALLBACK_LLM_PROVIDER) ?? persisted.fallbackProvider,
     codexModel: process.env.CODEX_MODEL || persisted.codexModel,
+    geminiModel: process.env.GEMINI_MODEL || persisted.geminiModel,
     // 呼び出し元が明示した defaults は最優先で上書きする
     ...defaults,
   };
@@ -476,6 +478,7 @@ export async function showRequestWizard(
 
   const usesClaude = primaryProvider === 'claude' || fallbackProvider === 'claude';
   const usesCodex = primaryProvider === 'codex' || fallbackProvider === 'codex';
+  const usesGemini = primaryProvider === 'gemini' || fallbackProvider === 'gemini';
 
   let planningModel = defaults.planningModel ?? 'claude-sonnet-4-6';
   let implModel = defaults.implModel ?? 'claude-sonnet-4-6';
@@ -519,6 +522,18 @@ export async function showRequestWizard(
     codexIntelligence = codexIntelligenceRaw as CodexIntelligenceChoice;
   }
 
+  let geminiModel: string | undefined;
+
+  if (usesGemini) {
+    const geminiModelRaw = await text({
+      message: 'Gemini モデル (空欄なら既定値)',
+      placeholder: 'gemini-2.5-flash',
+      initialValue: defaults.geminiModel ?? process.env.GEMINI_MODEL ?? 'gemini-2.5-flash',
+    });
+    if (isCancel(geminiModelRaw)) { outro('中止'); process.exit(0); }
+    geminiModel = (geminiModelRaw as string).trim() || undefined;
+  }
+
   clackLog.info(
     `準備完了 · ${owner}/${repoName} · ${phaseMode as string} · ${primaryProvider}→${fallbackProvider}`
   );
@@ -536,6 +551,7 @@ export async function showRequestWizard(
     fallbackProvider,
     codexModel,
     codexIntelligence,
+    geminiModel,
     sourceIssue: sourceIssues?.[0],
     sourceIssues,
     executionCount,

@@ -26,6 +26,7 @@ export type PersistedWizardDefaults = Partial<
     | 'implModel'
     | 'codexModel'
     | 'codexIntelligence'
+    | 'geminiModel'
   >
 >;
 
@@ -55,6 +56,7 @@ export async function loadWizardDefaults(): Promise<PersistedWizardDefaults> {
       codexIntelligence: typeof data.codexIntelligence === 'string'
         ? (data.codexIntelligence as CodexIntelligenceChoice)
         : undefined,
+      geminiModel: typeof data.geminiModel === 'string' ? data.geminiModel : undefined,
     };
   } catch {
     return {};
@@ -72,6 +74,7 @@ export async function saveWizardDefaults(result: WizardResult): Promise<void> {
     implModel: result.implModel,
     codexModel: result.codexModel,
     codexIntelligence: result.codexIntelligence,
+    geminiModel: result.geminiModel,
   };
 
   try {
