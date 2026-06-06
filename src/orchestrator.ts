@@ -19,6 +19,7 @@ import { isLlmUsageLimitError } from './utils/llm-errors.js';
 import { resolveTaskModel } from './utils/model-routing.js';
 import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
 import { trimPrDiff } from './utils/diff-trim.js';
+import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -1301,11 +1302,12 @@ ${repositoryContext || '(repository context was not loaded)'}
           });
         } else if (testResult.exitCode !== 0) {
           const errorOutput = (testResult.stdout + '\n' + testResult.stderr).trim();
-          logger.warn('npm test failed', `exit code: ${testResult.exitCode}`);
+          const failureSummary = parseTestOutput(errorOutput);
+          logger.warn('npm test failed', `exit code: ${testResult.exitCode}, failed: ${failureSummary.totalFailed}`);
           comments.push({
             path: 'package.json',
             line: 1,
-            body: `**テスト失敗**\n\n\`npm test\` が失敗しました。マージ前にすべてのテストを通してください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+            body: `**テスト失敗**\n\n\`npm test\` が失敗しました。マージ前にすべてのテストを通してください。\n\n${formatTestFailureComment(failureSummary, errorOutput)}`,
             severity: 'blocking',
           });
         } else {
