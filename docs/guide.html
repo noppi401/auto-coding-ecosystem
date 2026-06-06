@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html lang="ja" class="lang-ja">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Auto Coding Ecosystem — はじめてのガイド</title>
+<title>Auto Coding Ecosystem — Guide</title>
 <style>
   :root {
     --accent: #ff8a4c;
@@ -44,6 +44,7 @@
     border-bottom: 1px solid var(--border);
     padding: 48px 24px;
     text-align: center;
+    position: relative;
   }
   header.hero h1 { margin: 0; font-size: 2.1rem; letter-spacing: .5px; }
   header.hero .tri { color: var(--accent); }
@@ -85,7 +86,6 @@
   .agent.impl { border-top-color: var(--success); }
   .agent.infra { border-top-color: var(--info); }
 
-  /* flow diagram */
   .flow { margin-top: 20px; }
   .phase-band {
     background: var(--panel);
@@ -162,311 +162,357 @@
     margin-top: 14px;
   }
   footer { color: var(--fg-dim); text-align: center; padding: 30px; border-top: 1px solid var(--border); font-size: .85rem; }
+
+  /* ── language toggle ── */
+  .lang-btn {
+    position: absolute;
+    top: 16px;
+    right: 20px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 14px;
+    color: var(--fg-mute);
+    font-size: .85rem;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color .15s, border-color .15s;
+  }
+  .lang-btn:hover { color: var(--fg); border-color: var(--accent); }
+  .lang-ja .en { display: none; }
+  .lang-en .ja { display: none; }
 </style>
 </head>
 <body>
 <header class="hero">
+  <button class="lang-btn" id="langBtn" onclick="toggleLang()">EN</button>
   <h1><span class="tri">▲</span> Auto Coding Ecosystem</h1>
-  <p>要件定義 → 設計 → タスク分解 → 実装 → レビュー → 修正 → PR 作成 → マージ までを、複数の AI エージェントが連携して自動化するローカル実行型パイプライン。このページは、はじめて触る方向けに「仕組み」と「使い方」をまとめたガイドです。</p>
+  <p>
+    <span class="ja">要件定義 → 設計 → タスク分解 → 実装 → レビュー → 修正 → PR 作成 → マージ までを、複数の AI エージェントが連携して自動化するローカル実行型パイプライン。このページは、はじめて触る方向けに「仕組み」と「使い方」をまとめたガイドです。</span>
+    <span class="en">A locally-executed pipeline where multiple AI agents collaborate to automate: requirements → design → task decomposition → implementation → review → fixing → PR creation → merging. This page is a guide for first-time users covering how it works and how to use it.</span>
+  </p>
 </header>
 
 <div class="wrap">
 
   <section id="overview">
-    <h2>1. これは何？</h2>
-    <p class="lead">あなたが日本語で指示を渡すと、ツールが自動で次のことを行います。</p>
+    <h2>1. <span class="ja">これは何？</span><span class="en">What is this?</span></h2>
+    <p class="lead"><span class="ja">あなたが指示を渡すと、ツールが自動で次のことを行います。</span><span class="en">When you give an instruction, the tool automatically does the following.</span></p>
     <div class="card">
       <ul class="tight">
-        <li><b>計画（Phase 1）</b>: 指示から要件定義・設計書を作り、品質を別エージェントが採点。合格したら実装タスクへ分解し、GitHub Issue を起票します。</li>
-        <li><b>実装（Phase 2）</b>: タスクごとにブランチを切ってコードを生成 → PR を作成 → ビルド/テストとレビューを回して修正 → 承認されたらマージし、Issue を閉じます。</li>
+        <li><b><span class="ja">計画（Phase 1）</span><span class="en">Planning (Phase 1)</span></b>: <span class="ja">指示から要件定義・設計書を作り、品質を別エージェントが採点。合格したら実装タスクへ分解し、GitHub Issue を起票します。</span><span class="en">Creates requirements and design documents from your instruction; a separate agent scores quality. Once approved, decomposes into implementation tasks and creates GitHub Issues.</span></li>
+        <li><b><span class="ja">実装（Phase 2）</span><span class="en">Implementation (Phase 2)</span></b>: <span class="ja">タスクごとにブランチを切ってコードを生成 → PR を作成 → ビルド/テストとレビューを回して修正 → 承認されたらマージし、Issue を閉じます。</span><span class="en">Creates a branch per task, generates code → creates a PR → runs build/test and review cycles with fixes → merges when approved and closes the Issue.</span></li>
       </ul>
-      <p style="margin-top:12px; color:var(--fg-mute)">利用する AI は <b>Claude</b> を基本に、利用上限に達したら <b>Codex</b> / <b>Gemini</b> へ自動で切り替えられます。すべてローカルの CLI（<code>claude</code> / <code>gh</code> など）を呼び出して動作します。</p>
+      <p style="margin-top:12px; color:var(--fg-mute)"><span class="ja">利用する AI は <b>Claude</b> を基本に、利用上限に達したら <b>Codex</b> / <b>Gemini</b> へ自動で切り替えられます。すべてローカルの CLI（<code>claude</code> / <code>gh</code> など）を呼び出して動作します。</span><span class="en">The primary AI is <b>Claude</b>; when usage limits are reached the system automatically switches to <b>Codex</b> or <b>Gemini</b>. Everything runs by invoking locally-installed CLI tools (<code>claude</code>, <code>gh</code>, etc.).</span></p>
     </div>
   </section>
 
   <section id="agents">
-    <h2>2. エージェント構成</h2>
-    <p class="lead">各エージェントは共通基盤 <code>BaseAgent</code>（LLM 呼び出し・フォールバック・利用上限検知）を継承します。司令塔の <code>Orchestrator</code> がこれらを順に呼び出し、状態は <code>.ecosystem/state.json</code> に保存されます。</p>
+    <h2>2. <span class="ja">エージェント構成</span><span class="en">Agent Architecture</span></h2>
+    <p class="lead"><span class="ja">各エージェントは共通基盤 <code>BaseAgent</code>（LLM 呼び出し・フォールバック・利用上限検知）を継承します。司令塔の <code>Orchestrator</code> がこれらを順に呼び出し、状態は <code>.ecosystem/state.json</code> に保存されます。</span><span class="en">Each agent extends the common <code>BaseAgent</code> (LLM invocation, fallback, usage-limit detection). The <code>Orchestrator</code> calls them in sequence; state is saved to <code>.ecosystem/state.json</code>.</span></p>
     <div class="legend">
-      <span class="lg-plan">計画系</span>
-      <span class="lg-valid">検証系</span>
-      <span class="lg-impl">実装系</span>
-      <span class="lg-infra">基盤・連携</span>
+      <span class="lg-plan"><span class="ja">計画系</span><span class="en">Planning</span></span>
+      <span class="lg-valid"><span class="ja">検証系</span><span class="en">Validation</span></span>
+      <span class="lg-impl"><span class="ja">実装系</span><span class="en">Implementation</span></span>
+      <span class="lg-infra"><span class="ja">基盤・連携</span><span class="en">Infrastructure</span></span>
     </div>
     <div class="grid">
       <div class="agent plan">
-        <div class="role">計画</div><h4>RequirementsAgent</h4>
-        <p>指示文（＋既存リポジトリ要約）から要件定義書を生成。</p>
+        <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>RequirementsAgent</h4>
+        <p><span class="ja">指示文（＋既存リポジトリ要約）から要件定義書を生成。</span><span class="en">Generates a requirements document from the instruction (+ existing repository summary).</span></p>
       </div>
       <div class="agent valid">
-        <div class="role">検証</div><h4>RequirementsValidationAgent</h4>
-        <p>要件を 5 軸 100 点で採点。閾値未満なら要件を修正するループを回す。</p>
+        <div class="role"><span class="ja">検証</span><span class="en">Validation</span></div><h4>RequirementsValidationAgent</h4>
+        <p><span class="ja">要件を 5 軸 100 点で採点。閾値未満なら要件を修正するループを回す。</span><span class="en">Scores requirements on 5 axes (100 pts total). If below threshold, runs a correction loop.</span></p>
       </div>
       <div class="agent plan">
-        <div class="role">計画</div><h4>DesignAgent</h4>
-        <p>要件から設計書（アーキテクチャ）を生成。</p>
+        <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>DesignAgent</h4>
+        <p><span class="ja">要件から設計書（アーキテクチャ）を生成。</span><span class="en">Generates a design document (architecture) from requirements.</span></p>
       </div>
       <div class="agent valid">
-        <div class="role">検証</div><h4>DesignValidationAgent</h4>
-        <p>設計を 5 軸 100 点で採点。閾値未満なら設計を修正するループを回す。</p>
+        <div class="role"><span class="ja">検証</span><span class="en">Validation</span></div><h4>DesignValidationAgent</h4>
+        <p><span class="ja">設計を 5 軸 100 点で採点。閾値未満なら設計を修正するループを回す。</span><span class="en">Scores design on 5 axes (100 pts total). If below threshold, runs a correction loop.</span></p>
       </div>
       <div class="agent plan">
-        <div class="role">計画</div><h4>TaskDecompAgent</h4>
-        <p>設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）を付与。</p>
+        <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>TaskDecompAgent</h4>
+        <p><span class="ja">設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）を付与。</span><span class="en">Decomposes design into implementable tasks. Assigns complexity (low/medium/high) to each task.</span></p>
       </div>
       <div class="agent infra">
-        <div class="role">トークン削減</div><h4>RepoContextSummaryAgent</h4>
-        <p>既存リポジトリ改修時、巨大なコンテキストを一度だけ要約して後続で再利用。</p>
+        <div class="role"><span class="ja">トークン削減</span><span class="en">Token reduction</span></div><h4>RepoContextSummaryAgent</h4>
+        <p><span class="ja">既存リポジトリ改修時、巨大なコンテキストを一度だけ要約して後続で再利用。</span><span class="en">When modifying an existing repo, summarizes the large context once and reuses it downstream.</span></p>
       </div>
       <div class="agent impl">
-        <div class="role">実装</div><h4>CodingAgent</h4>
-        <p>タスクごとにコードを生成。複雑度に応じて実装モデルを自動選択可能。</p>
+        <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>CodingAgent</h4>
+        <p><span class="ja">タスクごとにコードを生成。複雑度に応じて実装モデルを自動選択可能。</span><span class="en">Generates code per task. Can automatically select the implementation model by complexity.</span></p>
       </div>
       <div class="agent impl">
-        <div class="role">実装</div><h4>ReviewAgent</h4>
-        <p>PR の差分をレビューし、blocking / suggestion の指摘を返す。</p>
+        <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>ReviewAgent</h4>
+        <p><span class="ja">PR の差分をレビューし、blocking / suggestion の指摘を返す。</span><span class="en">Reviews the PR diff and returns blocking / suggestion findings.</span></p>
       </div>
       <div class="agent impl">
-        <div class="role">実装</div><h4>CodexAgent</h4>
-        <p>任意で有効化できる独立レビュアー（セカンドオピニオン）。</p>
+        <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>CodexAgent</h4>
+        <p><span class="ja">任意で有効化できる独立レビュアー（セカンドオピニオン）。</span><span class="en">Optional independent reviewer (second opinion).</span></p>
       </div>
       <div class="agent impl">
-        <div class="role">実装</div><h4>FixAgent</h4>
-        <p>blocking 指摘を受けてコードを修正し、再コミットする。</p>
+        <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>FixAgent</h4>
+        <p><span class="ja">blocking 指摘を受けてコードを修正し、再コミットする。</span><span class="en">Applies fixes for blocking findings and re-commits.</span></p>
       </div>
       <div class="agent infra">
-        <div class="role">連携</div><h4>GitHubAgent</h4>
-        <p>リポジトリ/ブランチ/Issue/PR/マージ操作、worktree でのビルド・テスト実行。</p>
+        <div class="role"><span class="ja">連携</span><span class="en">Integration</span></div><h4>GitHubAgent</h4>
+        <p><span class="ja">リポジトリ/ブランチ/Issue/PR/マージ操作、worktree でのビルド・テスト実行。</span><span class="en">Handles repo/branch/Issue/PR/merge operations and runs build/tests in worktrees.</span></p>
       </div>
       <div class="agent infra">
-        <div class="role">基盤</div><h4>Orchestrator / StateManager</h4>
-        <p>全エージェントの実行順を制御し、進行状態を逐次保存・復元する。</p>
+        <div class="role"><span class="ja">基盤</span><span class="en">Core</span></div><h4>Orchestrator / StateManager</h4>
+        <p><span class="ja">全エージェントの実行順を制御し、進行状態を逐次保存・復元する。</span><span class="en">Controls execution order of all agents; saves and restores progress incrementally.</span></p>
       </div>
     </div>
   </section>
 
   <section id="flow">
-    <h2>3. 処理の流れ</h2>
-    <p class="lead">指示の入力からマージまで、エージェントは次のようにバトンを渡していきます。</p>
+    <h2>3. <span class="ja">処理の流れ</span><span class="en">Processing Flow</span></h2>
+    <p class="lead"><span class="ja">指示の入力からマージまで、エージェントは次のようにバトンを渡していきます。</span><span class="en">From instruction input to merge, agents hand off work in the following sequence.</span></p>
 
     <div class="flow">
       <div class="phase-band p1">
-        <div class="ptitle">▶ Phase 1 ： 計画（要件 → 設計 → タスク → Issue）</div>
+        <div class="ptitle">▶ <span class="ja">Phase 1 ： 計画（要件 → 設計 → タスク → Issue）</span><span class="en">Phase 1: Planning (Requirements → Design → Tasks → Issues)</span></div>
         <div class="steps">
-          <div class="step"><b>指示入力</b><span>自然言語 / エディタ複数行</span></div>
+          <div class="step"><b><span class="ja">指示入力</span><span class="en">Instruction</span></b><span><span class="ja">自然言語 / エディタ複数行</span><span class="en">Natural language / multi-line editor</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>Requirements</b><span>要件生成＋採点ループ</span></div>
+          <div class="step"><b>Requirements</b><span><span class="ja">要件生成＋採点ループ</span><span class="en">Generate + scoring loop</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>Design</b><span>設計生成＋採点ループ</span></div>
+          <div class="step"><b>Design</b><span><span class="ja">設計生成＋採点ループ</span><span class="en">Generate + scoring loop</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>TaskDecomp</b><span>タスク分解＋複雑度</span></div>
+          <div class="step"><b>TaskDecomp</b><span><span class="ja">タスク分解＋複雑度</span><span class="en">Decompose + complexity</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>承認 → Issue 起票</b><span>一覧をプレビュー承認</span></div>
+          <div class="step"><b><span class="ja">承認 → Issue 起票</span><span class="en">Approve → Create Issues</span></b><span><span class="ja">一覧をプレビュー承認</span><span class="en">Preview and approve list</span></span></div>
         </div>
-        <div class="loop-note">※ 採点が閾値未満なら、要件/設計はそれぞれ自動で修正ループ。結果は <code>.ecosystem/*.md</code> に保存。</div>
+        <div class="loop-note"><span class="ja">※ 採点が閾値未満なら、要件/設計はそれぞれ自動で修正ループ。結果は <code>.ecosystem/*.md</code> に保存。</span><span class="en">※ If score is below threshold, requirements/design enter an auto-correction loop. Results saved to <code>.ecosystem/*.md</code>.</span></div>
       </div>
 
       <div class="phase-band p2">
-        <div class="ptitle">▶ Phase 2 ： 実装（タスクごとに 1 件ずつ）</div>
+        <div class="ptitle">▶ <span class="ja">Phase 2 ： 実装（タスクごとに 1 件ずつ）</span><span class="en">Phase 2: Implementation (one task at a time)</span></div>
         <div class="steps">
-          <div class="step"><b>ブランチ作成</b><span>GitHubAgent</span></div>
+          <div class="step"><b><span class="ja">ブランチ作成</span><span class="en">Create branch</span></b><span>GitHubAgent</span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>Coding</b><span>コード生成→コミット→PR</span></div>
+          <div class="step"><b>Coding</b><span><span class="ja">コード生成→コミット→PR</span><span class="en">Generate → commit → PR</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>ビルド/テスト</b><span>tsc / npm test（決定論）</span></div>
+          <div class="step"><b><span class="ja">ビルド/テスト</span><span class="en">Build/Test</span></b><span>tsc / npm test</span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>Review (+Codex)</b><span>差分レビュー</span></div>
+          <div class="step"><b>Review (+Codex)</b><span><span class="ja">差分レビュー</span><span class="en">Diff review</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>Fix</b><span>blocking を修正</span></div>
+          <div class="step"><b>Fix</b><span><span class="ja">blocking を修正</span><span class="en">Fix blocking issues</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>マージ→Issue close</b><span>worktree 同期</span></div>
+          <div class="step"><b><span class="ja">マージ→Issue close</span><span class="en">Merge → close Issue</span></b><span><span class="ja">worktree 同期</span><span class="en">sync worktree</span></span></div>
         </div>
-        <div class="loop-note">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。</div>
+        <div class="loop-note"><span class="ja">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。</span><span class="en">※ Review → Fix loops up to <code>MAX_REVIEW_ITERATIONS</code> times until approved. Always "one active Issue/PR at a time."</span></div>
       </div>
     </div>
-    <div class="note">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</div>
+    <div class="note"><span class="ja">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</span><span class="en">When the usage limit is reached, the system auto-switches to <code>FALLBACK_LLM_PROVIDER</code>, or you can resume later with <code>--retry-failed</code>.</span></div>
   </section>
 
   <section id="internals">
-    <h2>4. システムの内部構造（SDK / CLI と実行の仕組み）</h2>
-    <p class="lead">各エージェントが「どうやって AI を呼び出し、エコシステムとして連携しているか」の技術的な解説です。</p>
+    <h2>4. <span class="ja">システムの内部構造（SDK / CLI と実行の仕組み）</span><span class="en">Internals (SDK / CLI and Execution Mechanism)</span></h2>
+    <p class="lead"><span class="ja">各エージェントが「どうやって AI を呼び出し、エコシステムとして連携しているか」の技術的な解説です。</span><span class="en">A technical explanation of how each agent calls AI and how they work together as an ecosystem.</span></p>
 
-    <h3>4.1 共通基盤 <code>BaseAgent</code> と呼び出し方式</h3>
+    <h3>4.1 <span class="ja">共通基盤 <code>BaseAgent</code> と呼び出し方式</span><span class="en">Common base <code>BaseAgent</code> and invocation method</span></h3>
     <div class="card">
-      <p style="margin-top:0">すべてのエージェント（RequirementsAgent / DesignAgent / CodingAgent / ReviewAgent …）は <code>BaseAgent</code> を継承します。<code>BaseAgent.invoke()</code> が provider を解決し、対応するメソッド（<code>invokeClaude</code> / <code>invokeCodex</code> / <code>invokeGemini</code> / <code>invokeLocal</code>）へ振り分けます。</p>
-      <p>本ツールは各プロバイダーの<b>公式 CLI をサブプロセスとして起動</b>し、プロンプトを <b>標準入力（stdin）</b>で渡して結果を受け取る方式です（ローカル LLM のみ OpenAI 互換 HTTP API を直接呼び出し）。特定言語の SDK には依存せず、ローカルにインストール済みの CLI 認証・設定をそのまま利用します。Windows のコマンド長制限やクォート事故を避けるため、プロンプトは引数ではなく stdin、system prompt は一時ファイル（<code>--system-prompt-file</code>）で渡します。</p>
+      <p style="margin-top:0"><span class="ja">すべてのエージェント（RequirementsAgent / DesignAgent / CodingAgent / ReviewAgent …）は <code>BaseAgent</code> を継承します。<code>BaseAgent.invoke()</code> が provider を解決し、対応するメソッド（<code>invokeClaude</code> / <code>invokeCodex</code> / <code>invokeGemini</code> / <code>invokeLocal</code>）へ振り分けます。</span><span class="en">All agents (RequirementsAgent / DesignAgent / CodingAgent / ReviewAgent …) extend <code>BaseAgent</code>. <code>BaseAgent.invoke()</code> resolves the provider and dispatches to the corresponding method (<code>invokeClaude</code> / <code>invokeCodex</code> / <code>invokeGemini</code> / <code>invokeLocal</code>).</span></p>
+      <p><span class="ja">本ツールは各プロバイダーの<b>公式 CLI をサブプロセスとして起動</b>し、プロンプトを <b>標準入力（stdin）</b>で渡して結果を受け取る方式です（ローカル LLM のみ OpenAI 互換 HTTP API を直接呼び出し）。特定言語の SDK には依存せず、ローカルにインストール済みの CLI 認証・設定をそのまま利用します。Windows のコマンド長制限やクォート事故を避けるため、プロンプトは引数ではなく stdin、system prompt は一時ファイル（<code>--system-prompt-file</code>）で渡します。</span><span class="en">This tool <b>launches each provider's official CLI as a subprocess</b>, passing prompts via <b>stdin</b> and reading back results (local LLMs use the OpenAI-compatible HTTP API directly). No language-specific SDK is required; the tool uses the auth and config of locally-installed CLIs. To avoid Windows command-length limits and quoting issues, prompts go via stdin and system prompts via a temp file (<code>--system-prompt-file</code>).</span></p>
     </div>
 
-    <h3>4.2 プロバイダー別の呼び出し</h3>
+    <h3>4.2 <span class="ja">プロバイダー別の呼び出し</span><span class="en">Provider-specific invocation</span></h3>
     <table>
-      <thead><tr><th>provider</th><th>呼び出し方法</th><th>モデル指定</th><th>応答形式</th></tr></thead>
+      <thead><tr><th>provider</th><th><span class="ja">呼び出し方法</span><span class="en">Invocation method</span></th><th><span class="ja">モデル指定</span><span class="en">Model spec</span></th><th><span class="ja">応答形式</span><span class="en">Response format</span></th></tr></thead>
       <tbody>
         <tr>
-          <td><b>Claude</b><br><span class="pill">既定</span></td>
-          <td><code>claude -p --model &lt;id&gt; --output-format json --dangerously-skip-permissions</code>（プロンプトは stdin）。<code>RESUME_AGENT_SESSIONS=true</code> 時は <code>--continue &lt;session_id&gt;</code> で会話を継続。</td>
-          <td><code>PLANNING_CLAUDE_MODEL</code> / <code>IMPLEMENTATION_CLAUDE_MODEL</code>（無ければ <code>CLAUDE_MODEL</code>）</td>
-          <td>JSON（<code>result</code> / <code>session_id</code> / <code>is_error</code>）</td>
+          <td><b>Claude</b><br><span class="pill"><span class="ja">既定</span><span class="en">default</span></span></td>
+          <td><code>claude -p --model &lt;id&gt; --output-format json --dangerously-skip-permissions</code><span class="ja">（プロンプトは stdin）。<code>RESUME_AGENT_SESSIONS=true</code> 時は <code>--continue &lt;session_id&gt;</code> で会話を継続。</span><span class="en"> (prompt via stdin). With <code>RESUME_AGENT_SESSIONS=true</code>, continues conversation via <code>--continue &lt;session_id&gt;</code>.</span></td>
+          <td><code>PLANNING_CLAUDE_MODEL</code> / <code>IMPLEMENTATION_CLAUDE_MODEL</code></td>
+          <td>JSON (<code>result</code> / <code>session_id</code> / <code>is_error</code>)</td>
         </tr>
         <tr>
           <td><b>Codex</b></td>
-          <td><code>codex exec --skip-git-repo-check --sandbox &lt;mode&gt; --output-last-message &lt;file&gt;</code>。最終メッセージをファイルから回収。</td>
-          <td><code>CODEX_MODEL</code> / <code>CODEX_INTELLIGENCE</code>（reasoning effort）</td>
-          <td>最終メッセージ（テキスト）</td>
+          <td><code>codex exec --skip-git-repo-check --sandbox &lt;mode&gt; --output-last-message &lt;file&gt;</code><span class="ja">。最終メッセージをファイルから回収。</span><span class="en">. Reads the last message from file.</span></td>
+          <td><code>CODEX_MODEL</code> / <code>CODEX_INTELLIGENCE</code></td>
+          <td><span class="ja">最終メッセージ（テキスト）</span><span class="en">Last message (text)</span></td>
         </tr>
         <tr>
           <td><b>Gemini</b></td>
-          <td><code>gemini -m &lt;id&gt; -o json -p</code>（プロンプトは stdin。Windows のコマンド長制限を回避）。</td>
-          <td><code>PLANNING_GEMINI_MODEL</code> / <code>IMPLEMENTATION_GEMINI_MODEL</code>（無ければ <code>GEMINI_MODEL</code>、既定 <code>gemini-2.5-flash</code>）</td>
-          <td>JSON（<code>content</code>/<code>result</code>/<code>text</code>/<code>candidates</code> を順に解釈。Markdown コードブロック等は <code>robustJsonParse</code> でフォールバック解析）</td>
+          <td><code>gemini -m &lt;id&gt; -o json -p</code><span class="ja">（プロンプトは stdin。Windows のコマンド長制限を回避）。</span><span class="en"> (prompt via stdin; avoids Windows command-length limits).</span></td>
+          <td><code>PLANNING_GEMINI_MODEL</code> / <code>IMPLEMENTATION_GEMINI_MODEL</code></td>
+          <td>JSON (<span class="ja"><code>content</code>/<code>result</code>/<code>text</code>/<code>candidates</code> を順に解釈。Markdown コードブロック等は <code>robustJsonParse</code> でフォールバック解析</span><span class="en"><code>content</code>/<code>result</code>/<code>text</code>/<code>candidates</code> tried in order; Markdown code blocks etc. handled by <code>robustJsonParse</code></span>)</td>
         </tr>
         <tr>
           <td><b>Local</b></td>
-          <td>OpenAI 互換エンドポイント <code>{LOCAL_LLM_URL}/chat/completions</code> へ HTTP POST（Ollama / LM Studio 等）。</td>
+          <td><span class="ja">OpenAI 互換エンドポイント <code>{LOCAL_LLM_URL}/chat/completions</code> へ HTTP POST（Ollama / LM Studio 等）。</span><span class="en">HTTP POST to OpenAI-compatible endpoint <code>{LOCAL_LLM_URL}/chat/completions</code> (Ollama / LM Studio, etc.).</span></td>
           <td><code>LOCAL_LLM_MODEL</code></td>
-          <td>JSON（<code>choices[].message.content</code>）</td>
+          <td>JSON (<code>choices[].message.content</code>)</td>
         </tr>
       </tbody>
     </table>
-    <div class="note"><b>Gemini を使うには</b>：<code>gemini</code> CLI をインストール・認証し、<code>.env</code> に <code>GEMINI_API_KEY</code> を設定します。provider はウィザード（実行AI 第1/第2候補）、または <code>--provider gemini</code> / <code>--fallback-provider gemini</code> で選択。モデルはウィザードの「Gemini モデル」入力、または <code>--gemini-model &lt;id&gt;</code> / 環境変数で指定します。利用上限（<code>QUOTA_EXHAUSTED</code> など）を検知すると、利用上限エラーとして扱いフォールバックします。</div>
+    <div class="note"><b><span class="ja">Gemini を使うには</span><span class="en">To use Gemini</span></b>: <span class="ja"><code>gemini</code> CLI をインストール・認証し、<code>.env</code> に <code>GEMINI_API_KEY</code> を設定します。provider はウィザード（実行AI 第1/第2候補）、または <code>--provider gemini</code> / <code>--fallback-provider gemini</code> で選択。モデルはウィザードの「Gemini モデル」入力、または <code>--gemini-model &lt;id&gt;</code> / 環境変数で指定します。利用上限（<code>QUOTA_EXHAUSTED</code> など）を検知すると、利用上限エラーとして扱いフォールバックします。</span><span class="en">install and authenticate the <code>gemini</code> CLI, set <code>GEMINI_API_KEY</code> in <code>.env</code>. Select the provider via the wizard (primary/fallback AI) or with <code>--provider gemini</code> / <code>--fallback-provider gemini</code>. Specify the model via the wizard's "Gemini model" input, <code>--gemini-model &lt;id&gt;</code>, or an env var. Usage limits (<code>QUOTA_EXHAUSTED</code>, etc.) are detected and trigger the fallback.</span></div>
 
-    <h3>4.3 ルーティング・フォールバック・堅牢性</h3>
+    <h3>4.3 <span class="ja">ルーティング・フォールバック・堅牢性</span><span class="en">Routing, Fallback, and Robustness</span></h3>
     <ul class="tight">
-      <li><b>役割振り分け</b>: エージェント名が <code>IMPLEMENTATION_AGENTS</code>（既定 <code>CodingAgent,FixAgent</code>）に含まれれば implementation ルート、それ以外は planning ルートとして provider / モデルを解決。</li>
-      <li><b>per-task モデル上書き</b>: <code>TASK_MODEL_ROUTING</code> 有効時、タスクの複雑度に応じた Claude モデルを <code>setModelOverride()</code> で実装系エージェントに適用（env を汚さない）。</li>
-      <li><b>フォールバック</b>: 呼び出しが利用上限に達すると当該 provider を「上限到達」として記録し、<code>FALLBACK_LLM_PROVIDER</code> へ自動切替。<code>AI_TOKEN_MODE</code> を特定 provider に固定した場合はフォールバックせず停止し、後で <code>--retry-failed</code> で再開。</li>
-      <li><b>応答の堅牢パース</b>: <code>robustJsonParse</code> が Markdown コードブロック・二重エスケープ・テンプレートリテラル・文字列内の生改行などを吸収して JSON 化。</li>
-      <li><b>タイムアウト</b>: 各 CLI 呼び出しは <code>AGENT_COMMAND_TIMEOUT_MS</code>（既定 15 分）で打ち切り。</li>
+      <li><b><span class="ja">役割振り分け</span><span class="en">Role routing</span></b>: <span class="ja">エージェント名が <code>IMPLEMENTATION_AGENTS</code>（既定 <code>CodingAgent,FixAgent</code>）に含まれれば implementation ルート、それ以外は planning ルートとして provider / モデルを解決。</span><span class="en">If the agent name is in <code>IMPLEMENTATION_AGENTS</code> (default: <code>CodingAgent,FixAgent</code>), it uses the implementation route; otherwise the planning route for provider/model resolution.</span></li>
+      <li><b><span class="ja">per-task モデル上書き</span><span class="en">Per-task model override</span></b>: <span class="ja"><code>TASK_MODEL_ROUTING</code> 有効時、タスクの複雑度に応じた Claude モデルを <code>setModelOverride()</code> で実装系エージェントに適用（env を汚さない）。</span><span class="en">When <code>TASK_MODEL_ROUTING</code> is enabled, the Claude model matching the task's complexity is applied to implementation agents via <code>setModelOverride()</code> (without polluting env vars).</span></li>
+      <li><b><span class="ja">フォールバック</span><span class="en">Fallback</span></b>: <span class="ja">呼び出しが利用上限に達すると当該 provider を「上限到達」として記録し、<code>FALLBACK_LLM_PROVIDER</code> へ自動切替。<code>AI_TOKEN_MODE</code> を特定 provider に固定した場合はフォールバックせず停止し、後で <code>--retry-failed</code> で再開。</span><span class="en">When a call hits the usage limit, that provider is flagged as exhausted and the system auto-switches to <code>FALLBACK_LLM_PROVIDER</code>. If <code>AI_TOKEN_MODE</code> is locked to a specific provider, the system stops rather than falling back; resume with <code>--retry-failed</code>.</span></li>
+      <li><b><span class="ja">応答の堅牢パース</span><span class="en">Robust response parsing</span></b>: <span class="ja"><code>robustJsonParse</code> が Markdown コードブロック・二重エスケープ・テンプレートリテラル・文字列内の生改行などを吸収して JSON 化。</span><span class="en"><code>robustJsonParse</code> handles Markdown code blocks, double-escaped strings, template literals, and literal newlines inside strings, converting them to valid JSON.</span></li>
+      <li><b><span class="ja">タイムアウト</span><span class="en">Timeout</span></b>: <span class="ja">各 CLI 呼び出しは <code>AGENT_COMMAND_TIMEOUT_MS</code>（既定 15 分）で打ち切り。</span><span class="en">Each CLI call is terminated after <code>AGENT_COMMAND_TIMEOUT_MS</code> (default 15 min).</span></li>
     </ul>
 
-    <h3>4.4 連携・状態・検証</h3>
+    <h3>4.4 <span class="ja">連携・状態・検証</span><span class="en">Integration, State, and Verification</span></h3>
     <ul class="tight">
-      <li><b>GitHubAgent</b>: <code>gh</code> CLI と git を用い、リポジトリ作成 / ブランチ / コミット / Issue / PR / マージ / コメントを実行。さらに <code>.ecosystem/worktrees/...</code> の作業ツリーで <code>tsc --noEmit</code> や <code>npm test</code> を回し、結果を「決定論的ゲート」としてレビューに反映。</li>
-      <li><b>StateManager</b>: 進行状態を <code>.ecosystem/state.json</code> へ逐次保存（要件・設計・タスク・各 PR/Issue・エージェントの session_id 等）。中断後の Resume はここから復元。</li>
-      <li><b>イベントバス</b>（<code>src/events.ts</code>）: Orchestrator の進捗（phase 変化 / タスク更新 / ログ / タスク承認）を Ink UI へ配信。UI と実行ロジックは疎結合。</li>
+      <li><b>GitHubAgent</b>: <span class="ja"><code>gh</code> CLI と git を用い、リポジトリ作成 / ブランチ / コミット / Issue / PR / マージ / コメントを実行。さらに <code>.ecosystem/worktrees/...</code> の作業ツリーで <code>tsc --noEmit</code> や <code>npm test</code> を回し、結果を「決定論的ゲート」としてレビューに反映。</span><span class="en">Uses <code>gh</code> CLI and git for repo creation / branch / commit / Issue / PR / merge / comments. Also runs <code>tsc --noEmit</code> and <code>npm test</code> in the <code>.ecosystem/worktrees/...</code> working tree; results feed into review as a "deterministic gate."</span></li>
+      <li><b>StateManager</b>: <span class="ja">進行状態を <code>.ecosystem/state.json</code> へ逐次保存（要件・設計・タスク・各 PR/Issue・エージェントの session_id 等）。中断後の Resume はここから復元。</span><span class="en">Saves progress incrementally to <code>.ecosystem/state.json</code> (requirements, design, tasks, PR/Issue numbers, agent session_ids, etc.). Resume after interruption restores from here.</span></li>
+      <li><b><span class="ja">イベントバス</span><span class="en">Event bus</span></b> (<code>src/events.ts</code>): <span class="ja">Orchestrator の進捗（phase 変化 / タスク更新 / ログ / タスク承認）を Ink UI へ配信。UI と実行ロジックは疎結合。</span><span class="en">Distributes Orchestrator progress (phase changes / task updates / logs / task approval) to the Ink UI. UI and execution logic are loosely coupled.</span></li>
     </ul>
   </section>
 
   <section id="setup">
-    <h2>5. セットアップ</h2>
+    <h2>5. <span class="ja">セットアップ</span><span class="en">Setup</span></h2>
     <div class="card">
-      <p style="margin-top:0"><b>前提</b>: Node.js 20+ / Claude CLI（<code>claude</code>）/ GitHub CLI（<code>gh auth login</code> 済み）/ 任意で Codex・Gemini CLI。</p>
-<pre><span class="c"># 依存をインストール</span>
+      <p style="margin-top:0"><b><span class="ja">前提</span><span class="en">Prerequisites</span></b>: Node.js 20+ / Claude CLI (<code>claude</code>) / GitHub CLI (<code>gh auth login</code> <span class="ja">済み</span><span class="en">completed</span>) / <span class="ja">任意で</span><span class="en">optional:</span> Codex / Gemini CLI.</p>
+<pre><span class="c ja"># 依存をインストール</span><span class="c en"># Install dependencies</span>
 npm install
 
-<span class="c"># 環境変数を用意</span>
+<span class="c ja"># 環境変数を用意</span><span class="c en"># Set up environment variables</span>
 cp .env.example .env
-<span class="c"># .env に最低限これを設定</span>
+<span class="c ja"># .env に最低限これを設定</span><span class="c en"># Set at minimum in .env</span>
 <span class="c">#   GITHUB_TOKEN=ghp_xxx</span>
 <span class="c">#   GITHUB_OWNER=your-github-owner</span></pre>
     </div>
   </section>
 
   <section id="usage">
-    <h2>6. 使い方</h2>
+    <h2>6. <span class="ja">使い方</span><span class="en">Usage</span></h2>
 
-    <h3>対話モードで起動（おすすめ）</h3>
+    <h3><span class="ja">対話モードで起動（おすすめ）</span><span class="en">Launch in interactive mode (recommended)</span></h3>
 <pre>npm run dev</pre>
-    <div class="note"><b>より簡単に</b>：一度 <code>npm run build && npm link</code> しておくと、どこからでも <code>ace</code> で起動できます（<code>ace status</code> / <code>ace phase2 --retry-failed</code> など、引数は <code>npm run dev --</code> と同じ）。</div>
-    <p class="lead">ホームメニューから選びます。</p>
+    <div class="note"><b><span class="ja">より簡単に</span><span class="en">Even simpler</span></b>: <span class="ja">一度 <code>npm run build &amp;&amp; npm link</code> しておくと、どこからでも <code>ace</code> で起動できます（<code>ace status</code> / <code>ace phase2 --retry-failed</code> など、引数は <code>npm run dev --</code> と同じ）。</span><span class="en">Run <code>npm run build &amp;&amp; npm link</code> once, then you can launch <code>ace</code> from any directory (<code>ace status</code> / <code>ace phase2 --retry-failed</code> etc.; args are the same as <code>npm run dev --</code>).</span></div>
+    <p class="lead"><span class="ja">ホームメニューから選びます。</span><span class="en">Choose from the home menu:</span></p>
     <ul class="tight">
-      <li><b>New request</b> — 新しい依頼を作成（新規リポジトリ or 既存リポジトリ改修）</li>
-      <li><b>Run from Issue</b> — 既存リポジトリの open Issue を選んで実行（複数選択・全件可）</li>
-      <li><b>Resume Phase 2</b> — 途中で止まったコーディングループを再開</li>
-      <li><b>Phase 1 only</b> — 計画だけ実行して Issue を起票し停止</li>
-      <li><b>Show status</b> — 現在の進捗（進捗バー・経過時間・PR/Issue リンク）を表示</li>
+      <li><b>New request</b> — <span class="ja">新しい依頼を作成（新規リポジトリ or 既存リポジトリ改修）</span><span class="en">Create a new request (new repository or modify existing)</span></li>
+      <li><b>Run from Issue</b> — <span class="ja">既存リポジトリの open Issue を選んで実行（複数選択・全件可）</span><span class="en">Select open Issues from an existing repository to run (multi-select or all)</span></li>
+      <li><b>Resume Phase 2</b> — <span class="ja">途中で止まったコーディングループを再開</span><span class="en">Resume an interrupted coding loop</span></li>
+      <li><b>Phase 1 only</b> — <span class="ja">計画だけ実行して Issue を起票し停止</span><span class="en">Run planning only, create Issues, then stop</span></li>
+      <li><b>Show status</b> — <span class="ja">現在の進捗（進捗バー・経過時間・PR/Issue リンク）を表示</span><span class="en">Display current progress (progress bar, elapsed time, PR/Issue links)</span></li>
     </ul>
-    <div class="note">ウィザードの選択（プロバイダー・モデル・フェーズなど）は <code>.ecosystem/wizard-defaults.json</code> に保存され、次回起動時に初期値として復元されます。実行状態は画面ヘッダーに <b>⏸ 入力待ち / ● 実行中 / ✓ 完了</b> と常時表示されます。</div>
+    <div class="note"><span class="ja">ウィザードの選択（プロバイダー・モデル・フェーズなど）は <code>.ecosystem/wizard-defaults.json</code> に保存され、次回起動時に初期値として復元されます。実行状態は画面ヘッダーに <b>⏸ 入力待ち / ● 実行中 / ✓ 完了</b> と常時表示されます。</span><span class="en">Wizard selections (provider, model, phase, etc.) are saved to <code>.ecosystem/wizard-defaults.json</code> and restored as defaults on next launch. Run state is always shown in the header as <b>⏸ waiting / ● running / ✓ done</b>.</span></div>
 
-    <h3>コマンドラインで実行</h3>
-<pre><span class="c"># 新規リポジトリを作って計画→実装まで自動実行</span>
+    <h3><span class="ja">コマンドラインで実行</span><span class="en">Command-line usage</span></h3>
+<pre><span class="c ja"># 新規リポジトリを作って計画→実装まで自動実行</span><span class="c en"># Create a new repo and auto-run planning through implementation</span>
 npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --auto
 
-<span class="c"># 既存リポジトリを改修</span>
+<span class="c ja"># 既存リポジトリを改修</span><span class="c en"># Modify an existing repository</span>
 npm run dev -- modify --target-repo owner/repo --instruction-file ./change.txt --auto
 
-<span class="c"># 既存 Issue を直接実行（複数可）</span>
+<span class="c ja"># 既存 Issue を直接実行（複数可）</span><span class="c en"># Run existing Issues directly (multiple allowed)</span>
 npm run dev -- modify --target-repo owner/repo --issue-number 123,124 --auto
 
-<span class="c"># Phase 2 だけ実行 / 失敗タスクを再試行</span>
+<span class="c ja"># Phase 2 だけ実行 / 失敗タスクを再試行</span><span class="c en"># Run Phase 2 only / retry failed tasks</span>
 npm run dev -- phase2 --retry-failed
 
-<span class="c"># 進捗を確認</span>
+<span class="c ja"># 進捗を確認</span><span class="c en"># Check progress</span>
 npm run dev -- status</pre>
-    <div class="note">長い日本語指示は、文字化けを避けるため <code>--instruction-file</code> での受け渡しを推奨します（対話モードでは「エディタで複数行入力」も選べます）。</div>
+    <div class="note"><span class="ja">長い指示は、文字化けを避けるため <code>--instruction-file</code> での受け渡しを推奨します（対話モードでは「エディタで複数行入力」も選べます）。</span><span class="en">For long instructions, passing them via <code>--instruction-file</code> is recommended to avoid encoding issues (in interactive mode you can also select "Multi-line editor input").</span></div>
 
-    <h3>モデルを指定する</h3>
+    <h3><span class="ja">モデルを指定する</span><span class="en">Specifying models</span></h3>
 <pre>npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
 npm run dev -- phase2 --impl-model claude-sonnet-4-6
 npm run dev -- start ... --provider codex --codex-model gpt-5.5 --codex-intelligence high
 npm run dev -- start ... --provider gemini --gemini-model gemini-2.5-flash</pre>
-    <p class="lead">CLI 引数は <code>.env</code> より優先されます。Planning（計画系）は安価なモデル、Implementation（実装系）はやや高性能なモデル、という使い分けが基本です。</p>
+    <p class="lead"><span class="ja">CLI 引数は <code>.env</code> より優先されます。Planning（計画系）は安価なモデル、Implementation（実装系）はやや高性能なモデル、という使い分けが基本です。</span><span class="en">CLI args override <code>.env</code>. The typical pattern is a cheaper model for Planning and a slightly more capable model for Implementation.</span></p>
   </section>
 
   <section id="token">
-    <h2>7. トークン削減オプション</h2>
-    <p class="lead">いずれも既定は無効（現行挙動を維持）で、環境変数で有効化する opt-in 方式です。</p>
+    <h2>7. <span class="ja">トークン削減オプション</span><span class="en">Token Reduction Options</span></h2>
+    <p class="lead"><span class="ja">いずれも既定は無効（現行挙動を維持）で、環境変数で有効化する opt-in 方式です。</span><span class="en">All options default to disabled (preserving existing behavior) and are opt-in via environment variables.</span></p>
     <table>
-      <thead><tr><th>環境変数</th><th>既定</th><th>効果</th></tr></thead>
+      <thead><tr><th><span class="ja">環境変数</span><span class="en">Variable</span></th><th><span class="ja">既定</span><span class="en">Default</span></th><th><span class="ja">効果</span><span class="en">Effect</span></th></tr></thead>
       <tbody>
         <tr>
           <td><code>TASK_MODEL_ROUTING</code><span class="pill opt">opt-in</span></td>
           <td><code>false</code></td>
-          <td>タスクの複雑度に応じて実装モデルを自動選択（low→haiku / medium→sonnet / high→opus）。ユーザー指定モデルは「上限」として尊重。</td>
+          <td><span class="ja">タスクの複雑度に応じて実装モデルを自動選択（low→haiku / medium→sonnet / high→opus）。ユーザー指定モデルは「上限」として尊重。対話モードのウィザードでも「固定 / 自動」を切り替えられます。</span><span class="en">Auto-select implementation model by task complexity (low→haiku / medium→sonnet / high→opus). User-specified model is treated as a ceiling. Also toggleable in the interactive wizard ("Fixed" / "Auto").</span></td>
         </tr>
         <tr>
           <td><code>REPO_CONTEXT_SUMMARY</code><span class="pill opt">opt-in</span></td>
           <td><code>false</code></td>
-          <td>既存リポジトリのコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用。</td>
+          <td><span class="ja">既存リポジトリのコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用。</span><span class="en">Summarize the existing repository context once and reuse it for requirements/design/task decomposition.</span></td>
         </tr>
         <tr>
           <td><code>IMPL_DOC_RELEVANCE</code><span class="pill opt">opt-in</span></td>
           <td><code>false</code></td>
-          <td>コード生成時、要件・設計書をタスク関連セクションに絞り込む。</td>
+          <td><span class="ja">コード生成時、要件・設計書をタスク関連セクションに絞り込む。</span><span class="en">Filter requirements and design docs to task-relevant sections during code generation.</span></td>
         </tr>
         <tr>
           <td><code>PR_DIFF_MAX_CHARS</code></td>
           <td><code>30000</code></td>
-          <td>レビュー/修正に渡す PR diff を上限でトリミング。lockfile は既定で除外。<code>0</code> で無効。</td>
+          <td><span class="ja">レビュー/修正に渡す PR diff を上限でトリミング。lockfile は既定で除外。<code>0</code> で無効。</span><span class="en">Trim PR diff for review/fix at this character limit. Lock files excluded by default. <code>0</code> to disable.</span></td>
         </tr>
       </tbody>
     </table>
   </section>
 
   <section id="env">
-    <h2>8. 主な環境変数（抜粋）</h2>
+    <h2>8. <span class="ja">主な環境変数（抜粋）</span><span class="en">Key Environment Variables (excerpt)</span></h2>
     <table>
-      <thead><tr><th>変数</th><th>既定</th><th>説明</th></tr></thead>
+      <thead><tr><th><span class="ja">変数</span><span class="en">Variable</span></th><th><span class="ja">既定</span><span class="en">Default</span></th><th><span class="ja">説明</span><span class="en">Description</span></th></tr></thead>
       <tbody>
-        <tr><td><code>GITHUB_TOKEN</code></td><td>—</td><td>GitHub API / CLI 用トークン</td></tr>
-        <tr><td><code>GITHUB_OWNER</code></td><td>—</td><td>既定の GitHub owner</td></tr>
-        <tr><td><code>BASE_BRANCH</code></td><td><code>main</code></td><td>PR のベースブランチ</td></tr>
-        <tr><td><code>MAX_REVIEW_ITERATIONS</code></td><td><code>5</code></td><td>レビューと修正の最大反復回数</td></tr>
-        <tr><td><code>TASK_APPROVAL</code></td><td><code>true</code></td><td>Issue 起票前にタスク一覧の承認を求める（<code>--auto</code> 時はスキップ）</td></tr>
-        <tr><td><code>CLAUDE_MODEL</code></td><td><code>claude-haiku-4-5-20251001</code></td><td>Claude の共通モデル</td></tr>
-        <tr><td><code>IMPLEMENTATION_CLAUDE_MODEL</code></td><td><code>claude-sonnet-4-6</code></td><td>CodingAgent / FixAgent 用モデル</td></tr>
-        <tr><td><code>FALLBACK_LLM_PROVIDER</code></td><td><code>codex</code></td><td>利用上限時に切り替える provider</td></tr>
-        <tr><td><code>CODEX_REVIEW_ENABLED</code></td><td><code>false</code></td><td>Codex の独立レビューを有効化</td></tr>
-        <tr><td><code>GEMINI_API_KEY</code> / <code>GEMINI_MODEL</code></td><td><code>gemini-2.5-flash</code></td><td>Gemini を provider に使う際の API キーと共通モデル</td></tr>
-        <tr><td><code>RESUME_AGENT_SESSIONS</code></td><td><code>false</code></td><td>Claude セッション継続を使う</td></tr>
+        <tr><td><code>GITHUB_TOKEN</code></td><td>—</td><td><span class="ja">GitHub API / CLI 用トークン</span><span class="en">GitHub API / CLI token</span></td></tr>
+        <tr><td><code>GITHUB_OWNER</code></td><td>—</td><td><span class="ja">既定の GitHub owner</span><span class="en">Default GitHub owner</span></td></tr>
+        <tr><td><code>BASE_BRANCH</code></td><td><code>main</code></td><td><span class="ja">PR のベースブランチ</span><span class="en">Base branch for PRs</span></td></tr>
+        <tr><td><code>MAX_REVIEW_ITERATIONS</code></td><td><code>5</code></td><td><span class="ja">レビューと修正の最大反復回数</span><span class="en">Maximum review-and-fix iterations</span></td></tr>
+        <tr><td><code>TASK_APPROVAL</code></td><td><code>true</code></td><td><span class="ja">Issue 起票前にタスク一覧の承認を求める（<code>--auto</code> 時はスキップ）</span><span class="en">Require task-list approval before creating Issues (skipped with <code>--auto</code>)</span></td></tr>
+        <tr><td><code>CLAUDE_MODEL</code></td><td><code>claude-haiku-4-5-20251001</code></td><td><span class="ja">Claude の共通モデル</span><span class="en">Common Claude model</span></td></tr>
+        <tr><td><code>IMPLEMENTATION_CLAUDE_MODEL</code></td><td><code>claude-sonnet-4-6</code></td><td><span class="ja">CodingAgent / FixAgent 用モデル</span><span class="en">Model for CodingAgent / FixAgent</span></td></tr>
+        <tr><td><code>FALLBACK_LLM_PROVIDER</code></td><td><code>codex</code></td><td><span class="ja">利用上限時に切り替える provider</span><span class="en">Provider to switch to when usage limit is reached</span></td></tr>
+        <tr><td><code>CODEX_REVIEW_ENABLED</code></td><td><code>false</code></td><td><span class="ja">Codex の独立レビューを有効化</span><span class="en">Enable independent Codex review</span></td></tr>
+        <tr><td><code>GEMINI_API_KEY</code> / <code>GEMINI_MODEL</code></td><td><code>gemini-2.5-flash</code></td><td><span class="ja">Gemini を provider に使う際の API キーと共通モデル</span><span class="en">API key and common model when using Gemini as provider</span></td></tr>
+        <tr><td><code>RESUME_AGENT_SESSIONS</code></td><td><code>false</code></td><td><span class="ja">Claude セッション継続を使う</span><span class="en">Use Claude session continuation</span></td></tr>
       </tbody>
     </table>
-    <p class="lead" style="margin-top:14px">全変数とモデル指定の詳細は <a href="../README.md">README.md</a> を参照してください。</p>
+    <p class="lead" style="margin-top:14px"><span class="ja">全変数とモデル指定の詳細は <a href="../README.md">README.md</a> を参照してください。</span><span class="en">See <a href="../README.en.md">README.en.md</a> for all variables and model specification details.</span></p>
   </section>
 
   <section id="tips">
-    <h2>9. つまずきやすいポイント</h2>
+    <h2>9. <span class="ja">つまずきやすいポイント</span><span class="en">Common Pitfalls</span></h2>
     <ul class="tight">
-      <li>PowerShell で <code>npm</code> / <code>npx</code> が実行ポリシーに止められる場合は <code>npm.cmd</code> / <code>npx.cmd</code> を使う。</li>
-      <li>状態は <code>.ecosystem/state.json</code> に保存。途中で止めても <b>Resume Phase 2</b> で再開できる。</li>
-      <li>確認用 worktree（<code>.ecosystem/worktrees/...</code>）に未コミット変更があると、安全のため自動同期が止まる。</li>
-      <li>Claude の利用上限に達したら、上限リセット後に <code>npm run dev -- phase2 --retry-failed</code> で再開。</li>
+      <li><span class="ja">PowerShell で <code>npm</code> / <code>npx</code> が実行ポリシーに止められる場合は <code>npm.cmd</code> / <code>npx.cmd</code> を使う。</span><span class="en">If PowerShell blocks <code>npm</code> / <code>npx</code> due to execution policy, use <code>npm.cmd</code> / <code>npx.cmd</code>.</span></li>
+      <li><span class="ja">状態は <code>.ecosystem/state.json</code> に保存。途中で止めても <b>Resume Phase 2</b> で再開できる。</span><span class="en">State is saved to <code>.ecosystem/state.json</code>. Even if interrupted, you can resume with <b>Resume Phase 2</b>.</span></li>
+      <li><span class="ja">確認用 worktree（<code>.ecosystem/worktrees/...</code>）に未コミット変更があると、安全のため自動同期が止まる。</span><span class="en">If the verification worktree (<code>.ecosystem/worktrees/...</code>) has uncommitted changes, auto-sync is paused for safety.</span></li>
+      <li><span class="ja">Claude の利用上限に達したら、上限リセット後に <code>npm run dev -- phase2 --retry-failed</code> で再開。</span><span class="en">After Claude's usage limit resets, resume with <code>npm run dev -- phase2 --retry-failed</code>.</span></li>
     </ul>
   </section>
 
 </div>
 
 <footer>
-  Auto Coding Ecosystem — first-time guide · 詳細は <a href="../README.md">README.md</a> へ
+  Auto Coding Ecosystem — <span class="ja">はじめてのガイド · 詳細は <a href="../README.md">README.md</a> へ</span><span class="en">first-time guide · See <a href="../README.en.md">README.en.md</a> for full details</span>
 </footer>
+
+<script>
+  (function () {
+    var btn = document.getElementById('langBtn');
+    var html = document.documentElement;
+
+    function setLang(lang) {
+      html.className = 'lang-' + lang;
+      html.lang = lang;
+      btn.textContent = lang === 'ja' ? 'EN' : 'JA';
+      try { localStorage.setItem('ace-lang', lang); } catch (e) {}
+    }
+
+    window.toggleLang = function () {
+      setLang(html.className === 'lang-ja' ? 'en' : 'ja');
+    };
+
+    try {
+      var saved = localStorage.getItem('ace-lang');
+      if (saved === 'en') setLang('en');
+    } catch (e) {}
+  })();
+</script>
 </body>
 </html>

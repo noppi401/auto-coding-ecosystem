@@ -1,5 +1,6 @@
 import { intro, select, isCancel, outro } from '@clack/prompts';
 import { StateManager } from '../../state/manager.js';
+import { t } from '../../utils/i18n.js';
 
 export type HomeChoice = 'new' | 'issue' | 'resume' | 'phase1only' | 'status' | 'quit';
 
@@ -15,27 +16,27 @@ export async function showHomeMenu(): Promise<HomeChoice> {
     {
       value: 'new' as HomeChoice,
       label: 'New request',
-      hint: '新しい依頼を作成',
+      hint: t('新しい依頼を作成', 'Create a new request'),
     },
     {
       value: 'issue' as HomeChoice,
       label: 'Run from Issue',
-      hint: '既存リポジトリの open Issue を選んで実行',
+      hint: t('既存リポジトリの open Issue を選んで実行', 'Run from open Issues in an existing repository'),
     },
     ...(hasState ? [{
       value: 'resume' as HomeChoice,
       label: `Resume Phase 2  (${lastRepo})`,
-      hint: '未完了のコーディングループに復帰',
+      hint: t('未完了のコーディングループに復帰', 'Resume an in-progress coding loop'),
     }] : []),
     {
       value: 'phase1only' as HomeChoice,
       label: 'Phase 1 only',
-      hint: '計画のみ実行（Issue起票して停止）',
+      hint: t('計画のみ実行（Issue起票して停止）', 'Plan only (create Issues and stop)'),
     },
     {
       value: 'status' as HomeChoice,
       label: 'Show status',
-      hint: '現在のプロジェクト状態を表示',
+      hint: t('現在のプロジェクト状態を表示', 'Show current project status'),
     },
     {
       value: 'quit' as HomeChoice,
@@ -45,12 +46,12 @@ export async function showHomeMenu(): Promise<HomeChoice> {
   ];
 
   const result = await select({
-    message: '何をしますか？',
+    message: t('何をしますか？', 'What would you like to do?'),
     options,
   });
 
   if (isCancel(result)) {
-    outro('中止しました');
+    outro(t('中止しました', 'Cancelled'));
     process.exit(0);
   }
 

@@ -24,6 +24,7 @@ export type PersistedWizardDefaults = Partial<
     | 'fallbackProvider'
     | 'planningModel'
     | 'implModel'
+    | 'taskModelRouting'
     | 'codexModel'
     | 'codexIntelligence'
     | 'geminiModel'
@@ -52,6 +53,7 @@ export async function loadWizardDefaults(): Promise<PersistedWizardDefaults> {
       fallbackProvider: asEnum(data.fallbackProvider, PROVIDERS),
       planningModel: typeof data.planningModel === 'string' ? data.planningModel : undefined,
       implModel: typeof data.implModel === 'string' ? data.implModel : undefined,
+      taskModelRouting: typeof data.taskModelRouting === 'boolean' ? data.taskModelRouting : undefined,
       codexModel: typeof data.codexModel === 'string' ? data.codexModel : undefined,
       codexIntelligence: typeof data.codexIntelligence === 'string'
         ? (data.codexIntelligence as CodexIntelligenceChoice)
@@ -72,6 +74,7 @@ export async function saveWizardDefaults(result: WizardResult): Promise<void> {
     fallbackProvider: result.fallbackProvider,
     planningModel: result.planningModel,
     implModel: result.implModel,
+    taskModelRouting: result.taskModelRouting,
     codexModel: result.codexModel,
     codexIntelligence: result.codexIntelligence,
     geminiModel: result.geminiModel,

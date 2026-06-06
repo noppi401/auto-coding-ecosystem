@@ -17,6 +17,7 @@ import { buildIssuesInstruction } from './utils/issue-instruction.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import { bus } from './events.js';
 import type { SourceIssue, Task } from './state/types.js';
+import { t } from './utils/i18n.js';
 
 config({ path: resolve('.env') });
 
@@ -154,7 +155,7 @@ function taskApprovalEnabled(): boolean {
 }
 
 function printTaskPreview(tasks: Task[]): void {
-  console.log(`\nタスク分解結果（${tasks.length}件）— GitHub Issue 起票前の確認:`);
+  console.log(t(`\nタスク分解結果（${tasks.length}件）— GitHub Issue 起票前の確認:`, `\nTask breakdown (${tasks.length}) — review before creating GitHub Issues:`));
   tasks.forEach((t, i) => {
     const cx = t.complexity ? ` [${t.complexity}]` : '';
     console.log(`  ${i + 1}. ${cleanOneLine(t.title)}${cx}`);
@@ -165,7 +166,7 @@ function printTaskPreview(tasks: Task[]): void {
 function confirmTasksViaStdin(tasks: Task[]): Promise<boolean> {
   printTaskPreview(tasks);
   return new Promise((resolve) => {
-    process.stdout.write('\nこの内容で GitHub Issue を起票しますか？ [y/N]: ');
+    process.stdout.write(t('\nこの内容で GitHub Issue を起票しますか？ [y/N]: ', '\nCreate GitHub Issues with this content? [y/N]: '));
     process.stdin.resume();
     process.stdin.once('data', (d: Buffer) => {
       const ans = d.toString().trim().toLowerCase();
@@ -262,8 +263,8 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
 }
 
 async function printLlmLimitNotice(err: LlmUsageLimitError): Promise<void> {
-  console.error(`\n${err.provider} の利用上限に達したため停止しました。`);
-  console.error('再開: npm run dev -- phase2 --retry-failed\n');
+  console.error(t(`\n${err.provider} の利用上限に達したため停止しました。`, `\nStopped: ${err.provider} usage limit reached.`));
+  console.error(t('再開: npm run dev -- phase2 --retry-failed\n', 'Resume: npm run dev -- phase2 --retry-failed\n'));
   const state = await new StateManager().load().catch(() => null);
   if (state) printFinalState(state);
 }
@@ -285,7 +286,7 @@ async function loadIssuesInstruction(
   return {
     sourceIssues,
     instruction: supplemental
-      ? [issueInstruction, '', '追加指示:', supplemental].join('\n')
+      ? [issueInstruction, '', t('追加指示:', 'Additional instructions:'), supplemental].join('\n')
       : issueInstruction,
   };
 }
@@ -331,7 +332,7 @@ async function plainStart(
   });
 
   if (state.phase === 'aborted') {
-    console.log('\nタスクが承認されなかったため、Issue を起票せずに中止しました。');
+    console.log(t('\nタスクが承認されなかったため、Issue を起票せずに中止しました。', '\nAborted — task list was not approved; no Issues were created.'));
     return;
   }
 
@@ -542,6 +543,7 @@ async function uiEntry(args: string[]): Promise<void> {
   );
   process.env.PLANNING_CLAUDE_MODEL = wizard.planningModel;
   process.env.IMPLEMENTATION_CLAUDE_MODEL = wizard.implModel;
+  process.env.TASK_MODEL_ROUTING = wizard.taskModelRouting ? 'true' : 'false';
   process.env.PLANNING_LLM_PROVIDER = wizard.primaryProvider;
   process.env.IMPLEMENTATION_LLM_PROVIDER = wizard.primaryProvider;
   process.env.FALLBACK_LLM_PROVIDER = wizard.fallbackProvider;

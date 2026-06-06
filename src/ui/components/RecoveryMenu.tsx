@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
 import type { Task } from '../../state/types.js';
+import { t } from '../../utils/i18n.js';
 
 interface Action {
   key: string;
@@ -26,10 +27,10 @@ export const RecoveryMenu: React.FC<Props> = ({
   onOpenPr,
 }) => {
   const actions: Action[] = [
-    { key: 'r', label: 'Retry (+3 iterations)',      hint: '同じモデルで再試行',      primary: true },
-    { key: 'R', label: 'Retry with opus-4',          hint: 'モデル昇格して再試行'                   },
-    { key: 's', label: 'Skip and continue queue',    hint: '次のタスクへ'                           },
-    ...(task.prNumber ? [{ key: 'o', label: `Open PR #${task.prNumber} in browser`, hint: '手動対応' }] : []),
+    { key: 'r', label: 'Retry (+3 iterations)',      hint: t('同じモデルで再試行', 'Retry with the same model'),  primary: true },
+    { key: 'R', label: 'Retry with opus-4',          hint: t('モデル昇格して再試行', 'Retry with upgraded model')              },
+    { key: 's', label: 'Skip and continue queue',    hint: t('次のタスクへ', 'Move to next task')                              },
+    ...(task.prNumber ? [{ key: 'o', label: `Open PR #${task.prNumber} in browser`, hint: t('手動対応', 'Handle manually') }] : []),
   ];
 
   return (

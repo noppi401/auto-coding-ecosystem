@@ -1,5 +1,7 @@
 # Auto Coding Ecosystem
 
+[🇯🇵 日本語](README.md) | [🇺🇸 English](README.en.md)
+
 Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解、実装、レビュー、修正、PR 作成、マージまでを支援するローカル実行型の自動コーディングパイプラインです。
 
 > 初めて触る方は、仕組みと使い方を図解した HTML ガイド [`docs/guide.html`](docs/guide.html) をブラウザで開いてください。
@@ -162,6 +164,7 @@ npm run dev -- status
 - **選択値の保存・復元**: プロバイダー・モデル・フェーズ等の選択は `.ecosystem/wizard-defaults.json` に保存され、次回起動時に初期選択として復元されます（`.env` / CLI 引数が優先）。
 - **処理回数の選択**: `Phase 1 + 2` 実行時に「1回 / 複数回 / リミットまで」を選べます（新規依頼・Issue 実行の両方）。
 - **タスク承認**: Issue 起票前にタスク一覧をプレビューし、承認（Enter）/ 中止（c）を選べます（`TASK_APPROVAL=false` で無効化、`--auto` 時はスキップ）。
+- **モデル自動選択**: Claude を選択した場合、実装モデル選択後に「固定 / 自動」を選べます。「自動」にするとタスクの複雑度（low/medium/high）に応じて haiku/sonnet/opus を自動選択します（選んだ実装モデルが上限）。
 - **実行状態の可視化**: ヘッダーに ⏸ 入力待ち / ● 実行中 / ✓ 完了 を常時表示。ログ表示中も現在処理中の Issue が分かります。
 
 ## 指示ファイルの作り方
@@ -223,7 +226,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 
 ### タスク複雑度に応じたモデル自動選択（トークン削減）
 
-`TASK_MODEL_ROUTING=true` を設定すると、TaskDecompAgent が各タスクに付与した複雑度（low / medium / high）に応じて実装モデルを自動選択します（既定: low→haiku, medium→sonnet, high→opus）。単純なタスクを安価なモデルに振り分けることでトークン/コストを削減します。
+`TASK_MODEL_ROUTING=true` を設定するか、対話モードのウィザードで「自動」を選ぶと、TaskDecompAgent が各タスクに付与した複雑度（low / medium / high）に応じて実装モデルを自動選択します（既定: low→haiku, medium→sonnet, high→opus）。単純なタスクを安価なモデルに振り分けることでトークン/コストを削減します。
 
 ユーザーが `--impl-model` や Wizard で実装モデルを明示した場合は、その選択を「上限」として扱い、ルーティング結果がそれより高コストになることはありません（例: sonnet を選ぶと high タスクも sonnet 止まり、low タスクは haiku のまま）。`TASK_MODEL_LOW` / `TASK_MODEL_MEDIUM` / `TASK_MODEL_HIGH` で各ランクのモデルを上書きできます。
 
@@ -240,7 +243,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `IMPLEMENTATION_LLM_PROVIDER` | `claude` | 実装、修正系の LLM provider |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Claude CLI の共通モデル |
 | `IMPLEMENTATION_CLAUDE_MODEL` | `claude-sonnet-4-6` | CodingAgent / FixAgent 専用モデル |
-| `TASK_MODEL_ROUTING` | `false` | タスクの複雑度に応じて実装モデルを自動選択する（トークン削減）。`true` で有効化 |
+| `TASK_MODEL_ROUTING` | `false` | タスクの複雑度に応じて実装モデルを自動選択する（トークン削減）。`true` で有効化（対話モードのウィザードでも設定可） |
 | `TASK_MODEL_LOW` | `claude-haiku-4-5-20251001` | complexity=low のタスクに使う実装モデル |
 | `TASK_MODEL_MEDIUM` | `claude-sonnet-4-6` | complexity=medium のタスクに使う実装モデル |
 | `TASK_MODEL_HIGH` | `claude-opus-4-7` | complexity=high のタスクに使う実装モデル |
