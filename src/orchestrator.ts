@@ -551,6 +551,13 @@ export class Orchestrator {
         reviewResult
       );
 
+      // Detect test deletions / disabling in the diff (deterministic, before LLM review)
+      const testDeletionComments = this._detectTestDeletion(rawPrDiff);
+      if (testDeletionComments.length > 0) {
+        combinedReviewResult.comments = [...testDeletionComments, ...combinedReviewResult.comments];
+        combinedReviewResult.approved = false;
+      }
+
       // Prepend build/test failures as blocking comments
       if (buildComments.length > 0) {
         combinedReviewResult.comments = [...buildComments, ...combinedReviewResult.comments];
@@ -1314,6 +1321,52 @@ ${repositoryContext || '(repository context was not loaded)'}
     return reviewResult.comments.filter(
       (comment) => comment.severity === 'suggestion'
     );
+  }
+
+  private _detectTestDeletion(diff: string): ReviewComment[] {
+    const comments: ReviewComment[] = [];
+    const lines = diff.split('\n');
+    let currentFile = '';
+    const reportedSkip = new Set<string>();
+
+    for (const line of lines) {
+      const diffHeader = line.match(/^diff --git a\/.+ b\/(.+)$/);
+      if (diffHeader) {
+        currentFile = diffHeader[1];
+      }
+
+      if (
+        line.startsWith('deleted file mode') &&
+        currentFile &&
+        /\.(test|spec)\.[jt]sx?$/.test(currentFile)
+      ) {
+        comments.push({
+          path: currentFile,
+          line: 1,
+          body: `**テスト削除禁止**\n\nテストファイル \`${currentFile}\` が削除されています。テストを削除してビルドを通過させることは禁止されています。実装を修正してテストを通してください。`,
+          severity: 'blocking',
+        });
+      }
+
+      if (
+        currentFile &&
+        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
+        line.startsWith('+') &&
+        !line.startsWith('+++') &&
+        /\.(skip|todo)\s*[.(]/.test(line) &&
+        !reportedSkip.has(currentFile)
+      ) {
+        reportedSkip.add(currentFile);
+        comments.push({
+          path: currentFile,
+          line: 1,
+          body: `**テスト無効化禁止**\n\n\`${currentFile}\` に \`.skip\` または \`.todo\` が追加されています。テストを無効化してビルドを通過させることは禁止されています。`,
+          severity: 'blocking',
+        });
+      }
+    }
+
+    return comments;
   }
 
   private async _requirementsWithValidation(

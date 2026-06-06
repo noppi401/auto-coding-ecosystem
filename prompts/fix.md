@@ -50,6 +50,19 @@ Use `contentBase64` for file contents. Encode each complete file as UTF-8 base64
 - Don't remove tested functionality
 - Ensure fixes don't introduce new issues
 
+## CRITICAL: Test Preservation Rules
+
+**NEVER take any of the following actions to make a build pass:**
+
+- **Do NOT delete test files** — removing a test file is always forbidden
+- **Do NOT add `.skip`, `.todo`, `xit(`, or `xtest(`** to any existing test case
+- **Do NOT comment out test assertions** or entire test blocks
+- **Do NOT weaken assertions** (e.g., changing `expect(x).toBe(5)` to `expect(x).toBeDefined()`)
+- **Do NOT change expected values to match broken behavior** — fix the implementation instead
+
+If a test is failing, **fix the implementation code** to make the test pass.
+A passing build achieved by disabling or removing tests is NOT a fix — it is a failure.
+
 ## Special Instructions
 
 - Write complete files (not diffs)
