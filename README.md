@@ -77,6 +77,26 @@ Windows Terminal の別ウィンドウで起動する場合:
 npm run dev:window
 ```
 
+## グローバルコマンドとして使う（`ace`）
+
+ビルドして `npm link` すると、どのディレクトリからでも `ace` で起動できます。
+
+```bash
+npm run build
+npm link
+```
+
+```bash
+ace                       # 対話モード（ホームメニュー）
+ace status                # 状態確認
+ace phase2 --retry-failed # 失敗タスクを再試行
+ace start --instruction-file ./instruction.txt --repo-name my-repo --auto
+```
+
+`ace <command>` は `npm run dev -- <command>` と同じ引数を受け付けます。リンクを解除する場合は `npm unlink -g auto-coding-ecosystem` を実行します。
+
+> 補足: `ace` は実行したディレクトリの `.ecosystem/state.json` を参照します。プロジェクトごとに作業ディレクトリを分けて実行してください。
+
 ## 基本コマンド
 
 ### 新規リポジトリを作る

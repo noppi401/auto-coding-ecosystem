@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { config } from 'dotenv';
 import { promises as fs } from 'fs';
 import { resolve } from 'path';
