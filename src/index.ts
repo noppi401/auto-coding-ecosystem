@@ -188,12 +188,20 @@ function cleanOneLine(v: string): string {
   return v.replace(/\s+/g, ' ').trim();
 }
 
+function formatLatestCheckDetail(task: Task): string | null {
+  const visible = (task.lastChecks ?? []).filter((check) => check.status !== 'passed');
+  const latest = visible.length > 0 ? visible[visible.length - 1] : null;
+  if (!latest) return null;
+  return truncate(cleanOneLine(`${latest.name}:${latest.status} ${latest.summary}`), 60);
+}
+
 function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['load']>>>): void {
   const total = state.tasks.length;
   const failed = state.tasks.filter((t) => t.status === 'failed').length;
   const merged = state.tasks.filter((t) => t.status === 'merged').length;
   const pending = state.tasks.filter((t) => t.status === 'pending').length;
-  const inProgress = total - merged - failed - pending;
+  const skipped = state.tasks.filter((t) => t.status === 'skipped').length;
+  const inProgress = total - merged - failed - pending - skipped;
 
   // Project header
   console.log('');
@@ -209,7 +217,7 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
   const pct = total > 0 ? Math.round((merged / total) * 100) : 0;
   console.log(`Progress  : [${bar}] ${pct}%  (${merged}/${total})`);
   console.log(
-    `Summary   : merged ${merged}  in-progress ${inProgress}  pending ${pending}  failed ${failed}`
+    `Summary   : merged ${merged}  in-progress ${inProgress}  pending ${pending}  skipped ${skipped}  failed ${failed}`
   );
   console.log('');
 
@@ -232,9 +240,10 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
     const age = formatDuration(
       new Date(task.updatedAt).getTime() - new Date(task.createdAt).getTime()
     );
-    const detail = task.status === 'failed' && task.errorMessage
-      ? truncate(cleanOneLine(task.errorMessage), 60)
-      : task.reviewIteration > 0 ? `iter ${task.reviewIteration}` : '-';
+    const detail = formatLatestCheckDetail(task)
+      ?? (task.status === 'failed' && task.errorMessage
+        ? truncate(cleanOneLine(task.errorMessage), 60)
+        : task.reviewIteration > 0 ? `iter ${task.reviewIteration}` : '-');
     console.log(
       (i + 1).toString().padEnd(COL.n) + ' ' +
       truncate(task.title, COL.title).padEnd(COL.title) + ' ' +
@@ -386,16 +395,24 @@ async function runPhase2RetryLoop(limitProvider: LimitProvider, maxAttempts?: nu
 
     printFinalState(latest);
 
-    const remainingCount = latest.tasks.filter((t) => t.status !== 'merged').length;
+    const remainingCount = latest.tasks.filter((t) => t.status !== 'merged' && t.status !== 'skipped').length;
+    const skippedCount = latest.tasks.filter((t) => t.status === 'skipped').length;
     if (remainingCount === 0) {
-      logger.info('Stopping Phase 2 retry loop because all tasks are merged');
+      if (skippedCount > 0) {
+        logger.warn(
+          'Stopping Phase 2 retry loop because only skipped tasks remain',
+          `${skippedCount}/${latest.tasks.length} tasks skipped`
+        );
+      } else {
+        logger.info('Stopping Phase 2 retry loop because all tasks are merged');
+      }
       stoppedWithNoFailures = true;
       break;
     }
 
     logger.info(
-      'Continuing Phase 2 retry loop because tasks remain',
-      `${remainingCount}/${latest.tasks.length} tasks are not merged`
+      'Continuing Phase 2 retry loop because actionable tasks remain',
+      `${remainingCount}/${latest.tasks.length} tasks are not merged or skipped`
     );
   }
 

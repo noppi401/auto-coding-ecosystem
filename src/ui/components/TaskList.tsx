@@ -14,6 +14,7 @@ interface Props {
 export const TaskList: React.FC<Props> = ({ tasks, focusedIndex, expandedTaskId }) => {
   const merged = tasks.filter((t) => t.status === 'merged').length;
   const failed = tasks.filter((t) => t.status === 'failed').length;
+  const skipped = tasks.filter((t) => t.status === 'skipped').length;
 
   return (
     <Box flexDirection="column" flexGrow={1}>
@@ -40,6 +41,11 @@ export const TaskList: React.FC<Props> = ({ tasks, focusedIndex, expandedTaskId 
         <Box gap={2}>
           <Text color={theme.fgDim}>Failed </Text>
           <Text color={failed > 0 ? theme.danger : theme.fgFaint} bold={failed > 0}>{failed}</Text>
+          <Text color={theme.fgFaint}>/ {tasks.length}</Text>
+        </Box>
+        <Box gap={2}>
+          <Text color={theme.fgDim}>Skipped</Text>
+          <Text color={skipped > 0 ? theme.fgDim : theme.fgFaint} bold={skipped > 0}>{skipped}</Text>
           <Text color={theme.fgFaint}>/ {tasks.length}</Text>
         </Box>
       </Box>

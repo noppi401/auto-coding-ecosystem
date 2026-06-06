@@ -2,7 +2,7 @@ import { promises as fs } from 'fs';
 import { randomUUID } from 'crypto';
 import { dirname } from 'path';
 import { StateManager } from './state/manager.js';
-import { ProjectState, ReviewComment, ReviewResult, SourceIssue, Task } from './state/types.js';
+import { ProjectState, ReviewComment, ReviewResult, SourceIssue, Task, TaskCheckResult } from './state/types.js';
 import { logger } from './utils/logger.js';
 import { RequirementsAgent } from './agents/requirements-agent.js';
 import { RequirementsValidationAgent } from './agents/requirements-validation-agent.js';
@@ -21,6 +21,7 @@ import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance
 import { trimPrDiff } from './utils/diff-trim.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
+import { selectInstallCommand } from './utils/package-manager.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -47,6 +48,14 @@ interface PlannedIssueTasks {
 function readPositiveIntEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(process.env[name] || '', 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function commandLine(command: string, args: string[]): string {
+  return [command, ...args].join(' ');
+}
+
+function summarizeOutput(output: string, maxChars: number = 500): string {
+  return output.replace(/\s+/g, ' ').trim().slice(0, maxChars);
 }
 
 const ISSUE_SPLIT_MODE = ((process.env.ISSUE_SPLIT_MODE || 'auto').toLowerCase()) as IssueSplitMode;
@@ -304,11 +313,13 @@ export class Orchestrator {
       latestState?.tasks.filter((latestTask) => latestTask.status === 'failed').length ?? 0;
     const remainingUnmergedCount =
       latestState?.tasks.filter((latestTask) => latestTask.status !== 'merged').length ?? 0;
+    const remainingSkippedCount =
+      latestState?.tasks.filter((latestTask) => latestTask.status === 'skipped').length ?? 0;
 
     if (remainingFailedCount > 0 || remainingUnmergedCount > 0) {
       logger.warn(
         'PHASE 2 paused with remaining tasks',
-        `${remainingFailedCount}/${state.tasks.length} tasks failed, ${remainingUnmergedCount}/${state.tasks.length} not merged`
+        `${remainingFailedCount}/${state.tasks.length} tasks failed, ${remainingSkippedCount}/${state.tasks.length} skipped, ${remainingUnmergedCount}/${state.tasks.length} not merged`
       );
       return;
     }
@@ -554,10 +565,23 @@ export class Orchestrator {
       );
 
       // Detect test deletions / disabling in the diff (deterministic, before LLM review)
-      const testDeletionComments = this._detectTestDeletion(rawPrDiff);
-      if (testDeletionComments.length > 0) {
-        combinedReviewResult.comments = [...testDeletionComments, ...combinedReviewResult.comments];
+      const testRegressionComments = this._detectTestDeletion(rawPrDiff);
+      if (testRegressionComments.length > 0) {
+        await this._recordTaskCheck(task, {
+          name: 'test-regression',
+          status: 'failed',
+          summary: `${testRegressionComments.length} 件のテスト退行を検出`,
+          severity: 'blocking',
+          details: testRegressionComments.map((comment) => `${comment.path}: ${comment.body}`).join('\n\n').slice(0, 2000),
+        });
+        combinedReviewResult.comments = [...testRegressionComments, ...combinedReviewResult.comments];
         combinedReviewResult.approved = false;
+      } else {
+        await this._recordTaskCheck(task, {
+          name: 'test-regression',
+          status: 'passed',
+          summary: 'PR diff にテスト削除・無効化・アサーション削除は検出されませんでした',
+        });
       }
 
       // Prepend build/test failures as blocking comments
@@ -1100,6 +1124,28 @@ ${repositoryContext || '(repository context was not loaded)'}
     );
   }
 
+  private async _recordTaskCheck(
+    task: Task,
+    check: Omit<TaskCheckResult, 'updatedAt'>
+  ): Promise<void> {
+    const state = await this.stateManager.load();
+    if (!state) return;
+
+    const target = state.tasks.find((stateTask) => stateTask.id === task.id);
+    if (!target) return;
+
+    const updated: TaskCheckResult = {
+      ...check,
+      updatedAt: new Date().toISOString(),
+    };
+    target.lastChecks = [
+      ...(target.lastChecks ?? []).filter((existing) => existing.name !== updated.name),
+      updated,
+    ];
+    task.lastChecks = target.lastChecks;
+    await this.stateManager.save(state);
+  }
+
   private async _createIssuesForTasks(
     tasks: Task[],
     owner: string,
@@ -1211,7 +1257,20 @@ ${repositoryContext || '(repository context was not loaded)'}
     task: Task
   ): Promise<ReviewComment[]> {
     if (process.env.BUILD_CHECK_ENABLED === 'false') {
-      return [];
+      const body = '**決定論ゲート未実行**\n\n`BUILD_CHECK_ENABLED=false` のため、TypeScript型チェック・依存インストール・テスト・カバレッジ確認は実行されていません。';
+      await this._recordTaskCheck(task, {
+        name: 'build-gate',
+        status: 'skipped',
+        summary: 'BUILD_CHECK_ENABLED=false のため決定論ゲートを未実行',
+        severity: 'suggestion',
+      });
+      logger.warn('Build/test gate disabled by BUILD_CHECK_ENABLED=false');
+      return [{
+        path: 'package.json',
+        line: 1,
+        body,
+        severity: 'suggestion',
+      }];
     }
 
     const comments: ReviewComment[] = [];
@@ -1222,6 +1281,7 @@ ${repositoryContext || '(repository context was not loaded)'}
     );
     if (tsconfigFiles['tsconfig.json']) {
       logger.info('Running TypeScript type check...');
+      const command = commandLine('npx', ['tsc', '--noEmit', '--pretty', 'false']);
       const tscResult = await githubAgent.runCommandInWorktree(
         state.githubOwner, state.githubRepo, task.branchName,
         'npx', ['tsc', '--noEmit', '--pretty', 'false'], 90000
@@ -1229,6 +1289,14 @@ ${repositoryContext || '(repository context was not loaded)'}
 
       if (tscResult.timedOut) {
         logger.warn('TypeScript type check timed out');
+        await this._recordTaskCheck(task, {
+          name: 'typescript',
+          status: 'failed',
+          summary: 'TypeScript型チェックがタイムアウト',
+          command,
+          timedOut: true,
+          severity: 'blocking',
+        });
         comments.push({
           path: 'tsconfig.json',
           line: 1,
@@ -1239,6 +1307,15 @@ ${repositoryContext || '(repository context was not loaded)'}
         const errorOutput = (tscResult.stdout + '\n' + tscResult.stderr).trim();
         const lineCount = errorOutput.split('\n').length;
         logger.warn('TypeScript type check failed', `${lineCount} lines of errors`);
+        await this._recordTaskCheck(task, {
+          name: 'typescript',
+          status: 'failed',
+          summary: `TypeScript型チェック失敗（${lineCount}行の出力）`,
+          command,
+          exitCode: tscResult.exitCode,
+          severity: 'blocking',
+          details: summarizeOutput(errorOutput, 1000),
+        });
         comments.push({
           path: 'tsconfig.json',
           line: 1,
@@ -1247,12 +1324,35 @@ ${repositoryContext || '(repository context was not loaded)'}
         });
       } else if (tscResult.exitCode === 0) {
         logger.info('TypeScript type check passed');
+        await this._recordTaskCheck(task, {
+          name: 'typescript',
+          status: 'passed',
+          summary: 'TypeScript型チェック通過',
+          command,
+          exitCode: 0,
+        });
       }
+    } else {
+      await this._recordTaskCheck(task, {
+        name: 'typescript',
+        status: 'skipped',
+        summary: 'tsconfig.json がないためTypeScript型チェックを未実行',
+      });
     }
 
-    // npm test (only if node_modules is present)
     const pkgFiles = await githubAgent.readFiles(
-      state.githubOwner, state.githubRepo, task.branchName, ['package.json']
+      state.githubOwner,
+      state.githubRepo,
+      task.branchName,
+      [
+        'package.json',
+        'package-lock.json',
+        'npm-shrinkwrap.json',
+        'pnpm-lock.yaml',
+        'yarn.lock',
+        'bun.lock',
+        'bun.lockb',
+      ]
     );
     if (pkgFiles['package.json']) {
       let pkg: any;
@@ -1269,25 +1369,64 @@ ${repositoryContext || '(repository context was not loaded)'}
         );
 
         if (!hasNodeModules) {
-          logger.info('node_modules not found; running npm install before test...');
+          const installChoice = selectInstallCommand(pkg, {
+            packageLock: Boolean(pkgFiles['package-lock.json']),
+            npmShrinkwrap: Boolean(pkgFiles['npm-shrinkwrap.json']),
+            pnpmLock: Boolean(pkgFiles['pnpm-lock.yaml']),
+            yarnLock: Boolean(pkgFiles['yarn.lock']),
+            bunLock: Boolean(pkgFiles['bun.lock'] || pkgFiles['bun.lockb']),
+          });
+          const installCommand = commandLine(installChoice.command, installChoice.args);
+          logger.info('node_modules not found; installing dependencies before test...', installCommand);
           const installResult = await githubAgent.runCommandInWorktree(
             state.githubOwner, state.githubRepo, task.branchName,
-            'npm', ['install', '--no-package-lock'], 180000
+            installChoice.command, installChoice.args, 180000
           );
           if (installResult.exitCode !== 0) {
             const errorOutput = (installResult.stdout + '\n' + installResult.stderr).trim();
             logger.warn('npm install failed; blocking test execution');
+            await this._recordTaskCheck(task, {
+              name: 'install',
+              status: 'failed',
+              summary: `依存インストール失敗: ${installCommand}`,
+              command: installCommand,
+              exitCode: installResult.exitCode,
+              timedOut: installResult.timedOut,
+              severity: 'blocking',
+              details: summarizeOutput(errorOutput, 1000),
+            });
             comments.push({
               path: 'package.json',
               line: 1,
-              body: `**テスト準備失敗**\n\n\`npm install --no-package-lock\` が失敗したため、\`npm test\` を実行できませんでした。依存関係の問題を修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+              body: `**テスト準備失敗**\n\n\`${installCommand}\` が失敗したため、\`npm test\` を実行できませんでした。\n\n理由: ${installChoice.reason}\n\n依存関係の問題を修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+              severity: 'blocking',
+            });
+            await this._recordTaskCheck(task, {
+              name: 'build-gate',
+              status: 'failed',
+              summary: '依存インストール失敗により決定論ゲート停止',
               severity: 'blocking',
             });
             return comments;
           }
+          await this._recordTaskCheck(task, {
+            name: 'install',
+            status: 'passed',
+            summary: `依存インストール通過: ${installCommand}`,
+            command: installCommand,
+            exitCode: 0,
+            details: installChoice.reason,
+          });
+        } else {
+          await this._recordTaskCheck(task, {
+            name: 'install',
+            status: 'skipped',
+            summary: 'node_modules が存在するため依存インストールを未実行',
+          });
         }
 
         logger.info('Running npm test...');
+        const testCommand = commandLine('npm', ['test']);
         const testResult = await githubAgent.runCommandInWorktree(
           state.githubOwner, state.githubRepo, task.branchName,
           'npm', ['test'], 120000
@@ -1295,6 +1434,14 @@ ${repositoryContext || '(repository context was not loaded)'}
 
         if (testResult.timedOut) {
           logger.warn('npm test timed out');
+          await this._recordTaskCheck(task, {
+            name: 'test',
+            status: 'failed',
+            summary: 'npm test がタイムアウト',
+            command: testCommand,
+            timedOut: true,
+            severity: 'blocking',
+          });
           comments.push({
             path: 'package.json',
             line: 1,
@@ -1305,6 +1452,15 @@ ${repositoryContext || '(repository context was not loaded)'}
           const errorOutput = (testResult.stdout + '\n' + testResult.stderr).trim();
           const failureSummary = parseTestOutput(errorOutput);
           logger.warn('npm test failed', `exit code: ${testResult.exitCode}, failed: ${failureSummary.totalFailed}`);
+          await this._recordTaskCheck(task, {
+            name: 'test',
+            status: 'failed',
+            summary: `npm test 失敗（${failureSummary.totalFailed}件）`,
+            command: testCommand,
+            exitCode: testResult.exitCode,
+            severity: 'blocking',
+            details: summarizeOutput(formatTestFailureComment(failureSummary, errorOutput), 1500),
+          });
           comments.push({
             path: 'package.json',
             line: 1,
@@ -1313,8 +1469,32 @@ ${repositoryContext || '(repository context was not loaded)'}
           });
         } else {
           logger.info('npm test passed');
+          await this._recordTaskCheck(task, {
+            name: 'test',
+            status: 'passed',
+            summary: 'npm test 通過',
+            command: testCommand,
+            exitCode: 0,
+          });
         }
+      } else {
+        await this._recordTaskCheck(task, {
+          name: 'test',
+          status: 'skipped',
+          summary: '有効な test script がないため npm test を未実行',
+        });
       }
+    } else {
+      await this._recordTaskCheck(task, {
+        name: 'install',
+        status: 'skipped',
+        summary: 'package.json がないため依存インストールを未実行',
+      });
+      await this._recordTaskCheck(task, {
+        name: 'test',
+        status: 'skipped',
+        summary: 'package.json がないため npm test を未実行',
+      });
     }
 
     // Coverage check (opt-in via COVERAGE_CHECK_ENABLED=true)
@@ -1323,21 +1503,54 @@ ${repositoryContext || '(repository context was not loaded)'}
         ? (() => { try { return JSON.parse(pkgFiles['package.json']); } catch { return null; } })()
         : null;
       const coverageScript: string | undefined = coveragePkg?.scripts?.['test:coverage'];
+      const coverageStrict = process.env.COVERAGE_CHECK_STRICT === 'true';
+      const coverageSeverity: ReviewComment['severity'] = coverageStrict ? 'blocking' : 'suggestion';
       if (coverageScript) {
         const lineThreshold = Number(process.env.COVERAGE_LINE_THRESHOLD ?? '70');
         const branchThreshold = Number(process.env.COVERAGE_BRANCH_THRESHOLD ?? '60');
         logger.info('Running coverage check...');
+        const coverageCommand = commandLine('npm', ['run', 'test:coverage']);
         const coverageResult = await githubAgent.runCommandInWorktree(
           state.githubOwner, state.githubRepo, task.branchName,
           'npm', ['run', 'test:coverage'], 180000
         );
         const coverageOutput = (coverageResult.stdout + '\n' + coverageResult.stderr).trim();
-        const summary = parseCoverageOutput(coverageOutput);
-        if (summary) {
+        if (coverageResult.timedOut || coverageResult.exitCode !== 0) {
+          const body = [
+            coverageResult.timedOut ? '**カバレッジ計測失敗（タイムアウト）**' : '**カバレッジ計測失敗**',
+            '',
+            `\`${coverageCommand}\` を実行しましたが、カバレッジを計測できませんでした。`,
+            '',
+            '```',
+            coverageOutput.slice(0, 3000),
+            '```',
+          ].join('\n');
+          await this._recordTaskCheck(task, {
+            name: 'coverage',
+            status: coverageStrict ? 'failed' : 'warning',
+            summary: coverageResult.timedOut ? 'カバレッジ計測がタイムアウト' : `カバレッジ計測失敗（exit ${coverageResult.exitCode}）`,
+            command: coverageCommand,
+            exitCode: coverageResult.exitCode,
+            timedOut: coverageResult.timedOut,
+            severity: coverageSeverity,
+            details: summarizeOutput(coverageOutput, 1000),
+          });
+          comments.push({ path: 'package.json', line: 1, body, severity: coverageSeverity });
+        } else {
+          const summary = parseCoverageOutput(coverageOutput);
+          if (summary) {
           const lineOk = summary.lines >= lineThreshold;
           const branchOk = summary.branches >= branchThreshold;
           if (!lineOk || !branchOk) {
             logger.warn('Coverage below threshold', `lines: ${summary.lines}%, branches: ${summary.branches}%`);
+            await this._recordTaskCheck(task, {
+              name: 'coverage',
+              status: 'warning',
+              summary: `カバレッジ閾値未満 lines ${summary.lines}% / branches ${summary.branches}%`,
+              command: coverageCommand,
+              exitCode: 0,
+              severity: 'suggestion',
+            });
             comments.push({
               path: 'package.json',
               line: 1,
@@ -1346,14 +1559,67 @@ ${repositoryContext || '(repository context was not loaded)'}
             });
           } else {
             logger.info('Coverage check passed', `lines: ${summary.lines}%, branches: ${summary.branches}%`);
+            await this._recordTaskCheck(task, {
+              name: 'coverage',
+              status: 'passed',
+              summary: `カバレッジ閾値クリア lines ${summary.lines}% / branches ${summary.branches}%`,
+              command: coverageCommand,
+              exitCode: 0,
+            });
           }
         } else {
-          logger.warn('Could not parse coverage output; skipping threshold check');
+          logger.warn('Could not parse coverage output');
+          const body = [
+            '**カバレッジ未解析**',
+            '',
+            `\`${coverageCommand}\` は成功しましたが、出力からカバレッジ率を解析できませんでした。`,
+            '',
+            '```',
+            coverageOutput.slice(0, 3000),
+            '```',
+          ].join('\n');
+          await this._recordTaskCheck(task, {
+            name: 'coverage',
+            status: coverageStrict ? 'failed' : 'warning',
+            summary: 'カバレッジ出力を解析できませんでした',
+            command: coverageCommand,
+            exitCode: 0,
+            severity: coverageSeverity,
+            details: summarizeOutput(coverageOutput, 1000),
+          });
+          comments.push({ path: 'package.json', line: 1, body, severity: coverageSeverity });
+          }
         }
       } else {
-        logger.info('COVERAGE_CHECK_ENABLED=true but no test:coverage script found; skipping');
+        logger.warn('COVERAGE_CHECK_ENABLED=true but no test:coverage script found');
+        const body = '**カバレッジ未計測**\n\n`COVERAGE_CHECK_ENABLED=true` ですが、`package.json` に `test:coverage` スクリプトがないため計測できませんでした。';
+        await this._recordTaskCheck(task, {
+          name: 'coverage',
+          status: coverageStrict ? 'failed' : 'warning',
+          summary: 'test:coverage script がないためカバレッジ未計測',
+          severity: coverageSeverity,
+        });
+        comments.push({ path: 'package.json', line: 1, body, severity: coverageSeverity });
       }
+    } else {
+      await this._recordTaskCheck(task, {
+        name: 'coverage',
+        status: 'skipped',
+        summary: 'COVERAGE_CHECK_ENABLED=true ではないためカバレッジ未実行',
+      });
     }
+
+    const hasBlocking = comments.some((comment) => comment.severity === 'blocking');
+    await this._recordTaskCheck(task, {
+      name: 'build-gate',
+      status: hasBlocking ? 'failed' : comments.length > 0 ? 'warning' : 'passed',
+      summary: hasBlocking
+        ? '決定論ゲートにblocking指摘があります'
+        : comments.length > 0
+          ? '決定論ゲートは完了しましたがsuggestionがあります'
+          : '決定論ゲート通過',
+      severity: hasBlocking ? 'blocking' : comments.length > 0 ? 'suggestion' : undefined,
+    });
 
     return comments;
   }
@@ -1369,6 +1635,9 @@ ${repositoryContext || '(repository context was not loaded)'}
     const lines = diff.split('\n');
     let currentFile = '';
     const reportedSkip = new Set<string>();
+    const reportedRemovedTestCase = new Set<string>();
+    const reportedRemovedExpectation = new Set<string>();
+    const reportedWeakenedAssertion = new Set<string>();
 
     for (const line of lines) {
       const diffHeader = line.match(/^diff --git a\/.+ b\/(.+)$/);
@@ -1394,14 +1663,65 @@ ${repositoryContext || '(repository context was not loaded)'}
         /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
         line.startsWith('+') &&
         !line.startsWith('+++') &&
-        /\.(skip|todo)\s*[.(]/.test(line) &&
+        (/[\s.](?:skip|todo)\s*[.(]/.test(line) || /\b(?:xit|xtest)\s*\(/.test(line)) &&
         !reportedSkip.has(currentFile)
       ) {
         reportedSkip.add(currentFile);
         comments.push({
           path: currentFile,
           line: 1,
-          body: `**テスト無効化禁止**\n\n\`${currentFile}\` に \`.skip\` または \`.todo\` が追加されています。テストを無効化してビルドを通過させることは禁止されています。`,
+          body: `**テスト無効化禁止**\n\n\`${currentFile}\` に \`.skip\` / \`.todo\` / \`xit\` / \`xtest\` のいずれかが追加されています。テストを無効化してビルドを通過させることは禁止されています。`,
+          severity: 'blocking',
+        });
+      }
+
+      if (
+        currentFile &&
+        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
+        line.startsWith('-') &&
+        !line.startsWith('---') &&
+        /\b(?:it|test)\s*\(/.test(line) &&
+        !reportedRemovedTestCase.has(currentFile)
+      ) {
+        reportedRemovedTestCase.add(currentFile);
+        comments.push({
+          path: currentFile,
+          line: 1,
+          body: `**テストケース削除禁止**\n\n\`${currentFile}\` で \`it(...)\` または \`test(...)\` の削除が検出されました。テスト数を減らしてビルドを通過させることは禁止されています。`,
+          severity: 'blocking',
+        });
+      }
+
+      if (
+        currentFile &&
+        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
+        line.startsWith('-') &&
+        !line.startsWith('---') &&
+        /\bexpect\s*\(/.test(line) &&
+        !reportedRemovedExpectation.has(currentFile)
+      ) {
+        reportedRemovedExpectation.add(currentFile);
+        comments.push({
+          path: currentFile,
+          line: 1,
+          body: `**アサーション削除禁止**\n\n\`${currentFile}\` で \`expect(...)\` の削除が検出されました。アサーションを削除してビルドを通過させることは禁止されています。`,
+          severity: 'blocking',
+        });
+      }
+
+      if (
+        currentFile &&
+        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
+        line.startsWith('+') &&
+        !line.startsWith('+++') &&
+        /\.(?:toBeDefined|toBeTruthy|toBeFalsy)\s*\(\s*\)/.test(line) &&
+        !reportedWeakenedAssertion.has(currentFile)
+      ) {
+        reportedWeakenedAssertion.add(currentFile);
+        comments.push({
+          path: currentFile,
+          line: 1,
+          body: `**アサーション弱体化禁止**\n\n\`${currentFile}\` で弱いアサーションへの変更が検出されました。期待値を弱めてビルドを通過させることは禁止されています。`,
           severity: 'blocking',
         });
       }

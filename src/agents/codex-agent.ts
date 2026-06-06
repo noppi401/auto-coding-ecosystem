@@ -9,11 +9,13 @@ import { FixOutput } from './fix-agent.js';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
-import { appendCodexRuntimeArgs } from '../utils/codex-options.js';
+import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import {
   LlmUsageLimitError,
   isCodexUsageLimitMessage,
 } from '../utils/llm-errors.js';
+
+type CodexOperation = 'generateCode' | 'reviewPr' | 'fixCode';
 
 export class CodexAgent extends BaseAgent {
   constructor() {
@@ -50,7 +52,7 @@ Return ONLY valid JSON with this structure:
   "prBody": "..."
 }`;
 
-    const response = await this.execCodexPrompt(prompt);
+    const response = await this.execCodexPrompt(prompt, 'generateCode');
     return this.parseCode(response);
   }
 
@@ -88,7 +90,7 @@ Return ONLY valid JSON with this structure:
   "summary": "review summary"
 }`;
 
-    const response = await this.execCodexPrompt(prompt);
+    const response = await this.execCodexPrompt(prompt, 'reviewPr');
     return this.parseReview(response);
   }
 
@@ -131,11 +133,11 @@ Return ONLY valid JSON with this structure:
   "fixSummary": "..."
 }`;
 
-    const response = await this.execCodexPrompt(prompt);
+    const response = await this.execCodexPrompt(prompt, 'fixCode');
     return this.parseFix(response);
   }
 
-  private async execCodexPrompt(prompt: string): Promise<string> {
+  private async execCodexPrompt(prompt: string, operation: CodexOperation): Promise<string> {
     const outputFile = join(
       tmpdir(),
       `codex-output-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
@@ -169,7 +171,7 @@ Return ONLY valid JSON with this structure:
     args.push('-');
 
     try {
-      const stdout = await this.execCodex(await resolveCodexBin(), args, fullPrompt);
+      const stdout = await this.execCodex(await resolveCodexBin(), args, fullPrompt, operation);
       const finalMessage = await fs.readFile(outputFile, 'utf-8').catch(() => stdout);
       const trimmed = finalMessage.trim();
       if (isCodexUsageLimitMessage(trimmed)) {
@@ -186,7 +188,48 @@ Return ONLY valid JSON with this structure:
     }
   }
 
-  private async execCodex(command: string, args: string[], stdin: string): Promise<string> {
+  private resolveCodexTimeoutMs(): number {
+    return this.readPositiveMs(process.env.CODEX_TIMEOUT_MS)
+      ?? this.readPositiveMs(process.env.AGENT_COMMAND_TIMEOUT_MS)
+      ?? 900000;
+  }
+
+  private readPositiveMs(value: string | undefined): number | null {
+    if (!value) return null;
+    const ms = Number(value);
+    return Number.isFinite(ms) && ms > 0 ? ms : null;
+  }
+
+  private formatTimeoutSeconds(timeoutMs: number): string {
+    const seconds = timeoutMs / 1000;
+    return `${Number.isInteger(seconds) ? seconds : Number(seconds.toFixed(3))}s`;
+  }
+
+  private codexProviderLabel(): string {
+    if (process.env.CODEX_USE_OSS === 'true') {
+      return `codex:${process.env.CODEX_LOCAL_PROVIDER?.trim() || 'oss'}`;
+    }
+    return 'codex';
+  }
+
+  private buildTimeoutDetails(operation: CodexOperation, timeoutMs: number) {
+    const options = getCodexRuntimeOptions();
+    return {
+      provider: this.codexProviderLabel(),
+      model: options.model || 'default',
+      operation,
+      timeout: this.formatTimeoutSeconds(timeoutMs),
+    };
+  }
+
+  private buildTimeoutError(operation: CodexOperation, timeoutMs: number): Error {
+    const details = this.buildTimeoutDetails(operation, timeoutMs);
+    return new Error(
+      `Codex command timeout: provider=${details.provider}, model=${details.model}, operation=${details.operation}, timeout=${details.timeout}`
+    );
+  }
+
+  private async execCodex(command: string, args: string[], stdin: string, operation: CodexOperation): Promise<string> {
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
         cwd: process.cwd(),
@@ -208,13 +251,18 @@ Return ONLY valid JSON with this structure:
       child.stdin?.write(stdin);
       child.stdin?.end();
 
+      const timeoutMs = this.resolveCodexTimeoutMs();
+      let timedOut = false;
       const timeout = setTimeout(() => {
+        timedOut = true;
         child.kill();
-        reject(new Error('Codex command timeout after 300s'));
-      }, Number(process.env.CODEX_TIMEOUT_MS || '300000'));
+        logger.warn('Codex command timed out', this.buildTimeoutDetails(operation, timeoutMs));
+        reject(this.buildTimeoutError(operation, timeoutMs));
+      }, timeoutMs);
 
       child.on('close', (code) => {
         clearTimeout(timeout);
+        if (timedOut) return;
         if (code === 0) {
           resolve(stdout);
         } else {
@@ -224,6 +272,7 @@ Return ONLY valid JSON with this structure:
 
       child.on('error', (err) => {
         clearTimeout(timeout);
+        if (timedOut) return;
         reject(err);
       });
     });

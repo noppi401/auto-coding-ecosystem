@@ -68,6 +68,19 @@ describe('useLogStream', () => {
     expect(result.current[2].message).toBe('D');
   });
 
+  it('ログレベルフィルタに一致するログだけを追加する', async () => {
+    const { useLogStream } = await import('../../ui/hooks/useLogStream.js');
+    const { result } = renderHook(() => useLogStream(10, ['warn', 'error']));
+
+    act(() => {
+      bus.emit('log', makeLogEvent('Info', 'info'));
+      bus.emit('log', makeLogEvent('Warn', 'warn'));
+      bus.emit('log', makeLogEvent('Error', 'error'));
+    });
+
+    expect(result.current.map((log) => log.message)).toEqual(['Warn', 'Error']);
+  });
+
   it('アンマウント後はログが追加されない', async () => {
     const { useLogStream } = await import('../../ui/hooks/useLogStream.js');
     const { result, unmount } = renderHook(() => useLogStream());

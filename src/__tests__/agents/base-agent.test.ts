@@ -35,6 +35,7 @@ const CLAUDE_SUCCESS = JSON.stringify({
 });
 
 const CODEX_SUCCESS = 'Hello from Codex';
+const GEMINI_SUCCESS = JSON.stringify({ content: 'Hello from Gemini' });
 
 describe('BaseAgent', () => {
   let origEnv: Record<string, string | undefined>;
@@ -131,6 +132,35 @@ describe('BaseAgent', () => {
       expect(execSpy).toHaveBeenCalledTimes(1);
     });
 
+    it('Codex が上限エラーを返したとき Gemini にフォールバックする', async () => {
+      process.env.IMPLEMENTATION_LLM_PROVIDER = 'codex';
+      process.env.FALLBACK_LLM_PROVIDER = 'gemini';
+      const agent = new BaseAgent('', 'CodingAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+
+      execSpy
+        .mockRejectedValueOnce(new Error('usage limit exceeded'))
+        .mockResolvedValueOnce(GEMINI_SUCCESS);
+
+      const result = await agent.invoke('test message');
+
+      expect(result).toBe('Hello from Gemini');
+      expect(execSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it('フォールバック先の Gemini も上限なら例外を投げる', async () => {
+      process.env.IMPLEMENTATION_LLM_PROVIDER = 'codex';
+      process.env.FALLBACK_LLM_PROVIDER = 'gemini';
+      const agent = new BaseAgent('', 'CodingAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+
+      execSpy
+        .mockRejectedValueOnce(new Error('usage limit exceeded'))
+        .mockRejectedValueOnce(new Error('TerminalQuotaError: quota exceeded'));
+
+      await expect(agent.invoke('test message')).rejects.toThrow('TerminalQuotaError');
+    });
+
     it('サポートされていないプロバイダーは例外をスローする', async () => {
       process.env.IMPLEMENTATION_LLM_PROVIDER = 'unsupported-provider';
       const agent = new BaseAgent('', 'CodingAgent'); // CodingAgent uses IMPLEMENTATION_LLM_PROVIDER
@@ -175,6 +205,16 @@ describe('BaseAgent', () => {
       const modelIdx = args.indexOf('--model');
       expect(modelIdx).toBeGreaterThan(-1);
       expect(args[modelIdx + 1]).toBe('claude-haiku-4-5-20251001');
+    });
+  });
+
+  describe('loadSystemPrompt()', () => {
+    it('prompts 配下のシステムプロンプトを読み込む', async () => {
+      const agent = new BaseAgent('coding.md', 'CodingAgent');
+
+      await agent.loadSystemPrompt();
+
+      expect(agent.getSystemPrompt()).toContain('Coding');
     });
   });
 

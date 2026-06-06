@@ -1,7 +1,7 @@
 import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
-import type { Task } from '../../state/types.js';
+import type { Task, TaskCheckResult } from '../../state/types.js';
 import { t } from '../../utils/i18n.js';
 
 interface Action {
@@ -17,6 +17,19 @@ interface Props {
   onRetryWithOpus?: () => void;
   onSkip?: () => void;
   onOpenPr?: () => void;
+}
+
+export function visibleTaskChecks(task: Task): TaskCheckResult[] {
+  return (task.lastChecks ?? [])
+    .filter((check) => check.status !== 'passed')
+    .slice(-4);
+}
+
+function checkColor(check: TaskCheckResult): string {
+  if (check.status === 'failed') return theme.danger;
+  if (check.status === 'warning') return theme.warning;
+  if (check.status === 'skipped') return theme.fgFaint;
+  return theme.success;
 }
 
 export const RecoveryMenu: React.FC<Props> = ({
@@ -51,6 +64,16 @@ export const RecoveryMenu: React.FC<Props> = ({
           </Box>
         ))}
       </Box>
+      {visibleTaskChecks(task).length > 0 && (
+        <Box marginTop={1} paddingLeft={1} flexDirection="column" borderLeft borderStyle="single" borderColor={theme.warning}>
+          <Text color={theme.fgDim} bold>LAST CHECKS</Text>
+          {visibleTaskChecks(task).map((check) => (
+            <Text key={`${check.name}-${check.updatedAt}`} color={checkColor(check)} wrap="wrap">
+              {check.name}: {check.status} - {check.summary}
+            </Text>
+          ))}
+        </Box>
+      )}
       {task.errorMessage && (
         <Box marginTop={1} paddingLeft={1} borderLeft borderStyle="single" borderColor={theme.danger}>
           <Text color={theme.danger} wrap="wrap">

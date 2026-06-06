@@ -6,6 +6,7 @@ import { useKeybinds } from '../hooks/useKeybinds.js';
 import { ProgressBar } from '../components/ProgressBar.js';
 import { FooterHints } from '../components/FooterHints.js';
 import { LogStream } from '../components/LogStream.js';
+import type { TaskCheckResult } from '../../state/types.js';
 
 function pad(s: string, n: number): string {
   return s.length >= n ? s.slice(0, n) : s + ' '.repeat(n - s.length);
@@ -13,6 +14,11 @@ function pad(s: string, n: number): string {
 
 function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s;
+}
+
+function latestVisibleCheck(checks: TaskCheckResult[] | undefined): TaskCheckResult | null {
+  const visible = (checks ?? []).filter((check) => check.status !== 'passed');
+  return visible.length > 0 ? visible[visible.length - 1] : null;
 }
 
 interface Props {
@@ -28,7 +34,8 @@ export const SummaryScreen: React.FC<Props> = ({ durationMs, onRestart }) => {
 
   const merged  = tasks.filter((t) => t.status === 'merged').length;
   const failed  = tasks.filter((t) => t.status === 'failed').length;
-  const skipped = tasks.filter((t) => t.status === 'pending').length;
+  const skipped = tasks.filter((t) => t.status === 'skipped').length;
+  const pending = tasks.filter((t) => t.status === 'pending').length;
 
   const dSec = Math.floor(durationMs / 1000);
   const dMin = Math.floor(dSec / 60);
@@ -63,6 +70,7 @@ export const SummaryScreen: React.FC<Props> = ({ durationMs, onRestart }) => {
         <Box gap={1}><Text color={theme.success} bold>{String(merged).padStart(3)}</Text><Text color={theme.success}>merged</Text></Box>
         <Box gap={1}><Text color={failed > 0 ? theme.danger : theme.fgFaint} bold>{String(failed).padStart(3)}</Text><Text color={theme.danger}>failed</Text></Box>
         <Box gap={1}><Text color={theme.fgFaint} bold>{String(skipped).padStart(3)}</Text><Text color={theme.fgFaint}>skipped</Text></Box>
+        <Box gap={1}><Text color={theme.fgFaint} bold>{String(pending).padStart(3)}</Text><Text color={theme.fgFaint}>pending</Text></Box>
       </Box>
       <Box paddingX={2}>
         <ProgressBar tasks={tasks} width={40} />
@@ -81,10 +89,12 @@ export const SummaryScreen: React.FC<Props> = ({ durationMs, onRestart }) => {
             <Text color={theme.fgDim}>{pad('PR', 5)}</Text>
             <Text color={theme.fgDim}>{pad('ISSUE', 5)}</Text>
             <Text color={theme.fgDim}>ITER</Text>
+            <Text color={theme.fgDim}>CHECK</Text>
           </Box>
           {tasks.map((task, i) => {
             const meta = statusMeta[task.status];
             const focused = i === selectedIndex;
+            const check = latestVisibleCheck(task.lastChecks);
             return (
               <Box key={task.id} flexDirection="column">
                 <Box gap={2} paddingX={1}>
@@ -96,7 +106,17 @@ export const SummaryScreen: React.FC<Props> = ({ durationMs, onRestart }) => {
                   <Text color={task.reviewIteration >= 5 ? theme.danger : theme.fgFaint}>
                     {task.reviewIteration > 0 ? `${task.reviewIteration}/5` : '-'}
                   </Text>
+                  <Text color={check?.status === 'failed' ? theme.danger : check?.status === 'warning' ? theme.warning : theme.fgFaint}>
+                    {check ? truncate(`${check.name}:${check.status}`, 22) : '-'}
+                  </Text>
                 </Box>
+                {check && focused && (
+                  <Box paddingLeft={4}>
+                    <Text color={check.status === 'failed' ? theme.danger : theme.warning} wrap="wrap">
+                      {truncate(check.summary, 140)}
+                    </Text>
+                  </Box>
+                )}
                 {task.status === 'failed' && task.errorMessage && focused && (
                   <Box paddingLeft={4}>
                     <Text color={theme.danger} wrap="wrap">{truncate(task.errorMessage, 140)}</Text>

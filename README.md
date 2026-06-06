@@ -261,11 +261,13 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `COVERAGE_CHECK_ENABLED` | `false` | カバレッジ計測を有効化（`true` で有効化）。`package.json` に `test:coverage` スクリプトが必要 |
 | `COVERAGE_LINE_THRESHOLD` | `70` | ラインカバレッジ閾値（%）。未満なら suggestion コメント |
 | `COVERAGE_BRANCH_THRESHOLD` | `60` | 分岐カバレッジ閾値（%）。未満なら suggestion コメント |
+| `COVERAGE_CHECK_STRICT` | `false` | `true` の場合、カバレッジ未計測・未解析・実行失敗を blocking として扱う |
 | `CODEX_REVIEW_ENABLED` | `false` | Codex 独立レビューを有効化するか |
 | `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
 | `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
+| `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent 専用のタイムアウト。未指定時は `AGENT_COMMAND_TIMEOUT_MS`、さらに未指定なら `900000` を使う |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
-| `AGENT_COMMAND_TIMEOUT_MS` | `900000` | エージェントコマンドのタイムアウト |
+| `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent 系コマンドのタイムアウト。`CODEX_TIMEOUT_MS` 未指定時は CodexAgent もこの値を使う |
 | `REPO_CONTEXT_SUMMARY` | `false` | modify 時にリポジトリコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用してトークンを削減する。`true` で有効化 |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | 要約エージェントに渡すコンテキストの最大文字数 |
 | `REPO_CONTEXT_MAX_FILES` | `80` | 既存 repo 読み取り時の最大ファイル数 |
@@ -302,7 +304,7 @@ cd .ecosystem\worktrees\<owner>\<repo>\__context
 
 Phase 2 では PR マージ直後と完了直前に、この `__context` worktree を `origin/<BASE_BRANCH>` へ同期します。同期できない場合は Phase 2 を completed にせず失敗として扱います。
 
-`__context` に未コミット変更がある場合は、安全のため自動同期を止めます。手元の変更を退避またはコミットしてから再実行してください。
+`__context` に未コミット変更がある場合は、安全のため自動同期を止めます。エラーには対象パス、`git status --porcelain` の変更ファイル一覧、復旧手順が表示されます。手元の変更を退避またはコミットしてから再実行してください。
 
 また、`~/Documents/Products/<repo>` が存在する場合は、そこも確認用 checkout として同じタイミングで同期します。例えば次のようなパスが対象です。
 
@@ -322,7 +324,7 @@ ECOSYSTEM_PRODUCT_WORKTREE=C:\path\to\Products\<repo>
 ECOSYSTEM_PRODUCT_ROOT=C:\path\to\Products
 ```
 
-Products 側に未コミット変更がある場合も、安全のため同期を止めます。
+Products 側に未コミット変更がある場合も、安全のため同期を止めます。`ECOSYSTEM_PRODUCT_WORKTREE` または Products checkout の対象名と dirty ファイル一覧がエラーに含まれます。
 
 以下は、生成アプリが backend / frontend 構成（Prisma 利用）の場合の確認手順の一例です。生成物の構成に合わせて読み替えてください。
 

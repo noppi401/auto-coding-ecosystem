@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { promises as fs } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { randomUUID } from 'crypto';
 import { GitHubAgent } from '../../agents/github-agent.js';
 
 vi.mock('../../utils/logger.js', () => ({
@@ -6,181 +10,157 @@ vi.mock('../../utils/logger.js', () => ({
 }));
 
 describe('GitHubAgent', () => {
-  let agent: GitHubAgent;
+  let checkoutPath: string;
+  let origEnv: Record<string, string | undefined>;
 
   beforeEach(() => {
-    agent = new GitHubAgent();
-    vi.clearAllMocks();
+    checkoutPath = join(tmpdir(), `ace-github-agent-test-${randomUUID()}`, 'repo');
+    origEnv = {
+      ECOSYSTEM_PRODUCT_WORKTREE: process.env.ECOSYSTEM_PRODUCT_WORKTREE,
+      ECOSYSTEM_PRODUCT_ROOT: process.env.ECOSYSTEM_PRODUCT_ROOT,
+    };
+    delete process.env.ECOSYSTEM_PRODUCT_WORKTREE;
+    delete process.env.ECOSYSTEM_PRODUCT_ROOT;
   });
 
-  describe('createPr()', () => {
-    it('PR URL から prNumber と prUrl を正しくパースする', async () => {
-      const execSpy = vi.spyOn(agent as any, 'exec').mockResolvedValue(
-        'https://github.com/owner/repo/pull/42\n'
-      );
-
-      const result = await agent.createPr('owner', 'repo', 'feat/branch', 'PR title', 'PR body');
-
-      expect(result.prNumber).toBe(42);
-      expect(result.prUrl).toBe('https://github.com/owner/repo/pull/42');
-    });
-
-    it('PR 作成失敗時に既存 PR が見つかればそれを返す', async () => {
-      const execSpy = vi.spyOn(agent as any, 'exec')
-        .mockRejectedValueOnce(new Error('PR already exists'))
-        .mockResolvedValueOnce(
-          JSON.stringify([{ number: 10, url: 'https://github.com/owner/repo/pull/10' }])
-        );
-
-      const result = await agent.createPr('owner', 'repo', 'feat/branch', 'title', 'body');
-
-      expect(result.prNumber).toBe(10);
-      expect(result.prUrl).toBe('https://github.com/owner/repo/pull/10');
-    });
-
-    it('PR 作成失敗かつ既存 PR もない場合は例外をスローする', async () => {
-      vi.spyOn(agent as any, 'exec')
-        .mockRejectedValueOnce(new Error('gh pr create failed'))
-        .mockResolvedValueOnce(JSON.stringify([]));
-
-      await expect(
-        agent.createPr('owner', 'repo', 'feat/branch', 'title', 'body')
-      ).rejects.toThrow();
-    });
+  afterEach(async () => {
+    for (const [key, value] of Object.entries(origEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await fs.rm(join(checkoutPath, '..'), { recursive: true, force: true }).catch(() => {});
   });
 
-  describe('findOpenPrForBranch()', () => {
-    it('PR が見つかったとき prNumber と prUrl を返す', async () => {
-      vi.spyOn(agent as any, 'execAllowFailure').mockResolvedValue(
-        JSON.stringify([{ number: 7, url: 'https://github.com/owner/repo/pull/7' }])
-      );
-
-      const result = await agent.findOpenPrForBranch('owner', 'repo', 'feat/x');
-
-      expect(result?.prNumber).toBe(7);
-      expect(result?.prUrl).toBe('https://github.com/owner/repo/pull/7');
+  function mockDirtyCheckout(agent: GitHubAgent, status: string) {
+    vi.spyOn(agent as any, 'pathExists').mockResolvedValue(true);
+    return vi.spyOn(agent as any, 'exec').mockImplementation(async (_command: string, args: string[]) => {
+      if (args[0] === 'status' && args[1] === '--porcelain') {
+        return status;
+      }
+      throw new Error(`unexpected command: ${args.join(' ')}`);
     });
+  }
 
-    it('PR が空リストのとき null を返す', async () => {
-      vi.spyOn(agent as any, 'execAllowFailure').mockResolvedValue(JSON.stringify([]));
-      const result = await agent.findOpenPrForBranch('owner', 'repo', 'feat/x');
-      expect(result).toBeNull();
-    });
+  it('createRepo は gh repo create を正しい引数で呼ぶ', async () => {
+    const agent = new GitHubAgent();
+    const execSpy = vi.spyOn(agent as any, 'exec').mockResolvedValue('');
 
-    it('空文字列のとき null を返す', async () => {
-      vi.spyOn(agent as any, 'execAllowFailure').mockResolvedValue('');
-      const result = await agent.findOpenPrForBranch('owner', 'repo', 'feat/x');
-      expect(result).toBeNull();
-    });
+    await agent.createRepo('owner', 'repo');
+
+    expect(execSpy).toHaveBeenCalledWith('gh', [
+      'repo',
+      'create',
+      'owner/repo',
+      '--public',
+      '--add-readme',
+    ]);
   });
 
-  describe('listOpenIssues()', () => {
-    it('Issue 一覧を正しくパースする', async () => {
-      const mockIssues = [
-        {
-          number: 1,
-          title: 'Bug report',
-          body: 'There is a bug',
-          url: 'https://github.com/owner/repo/issues/1',
-          labels: [{ name: 'bug' }],
-          updatedAt: '2024-01-01T00:00:00Z',
-        },
-        {
-          number: 2,
-          title: 'Feature request',
-          body: 'Add new feature',
-          url: 'https://github.com/owner/repo/issues/2',
-          labels: ['enhancement'],
-          updatedAt: '2024-01-02T00:00:00Z',
-        },
-      ];
-      vi.spyOn(agent as any, 'exec').mockResolvedValue(JSON.stringify(mockIssues));
+  it('createPr は gh pr create の出力からPR番号とURLを返す', async () => {
+    const agent = new GitHubAgent();
+    const execSpy = vi.spyOn(agent as any, 'exec').mockResolvedValue(
+      'https://github.com/owner/repo/pull/123\n'
+    );
 
-      const result = await agent.listOpenIssues('owner', 'repo');
+    const pr = await agent.createPr('owner', 'repo', 'feat/test', 'PR title', 'PR body');
 
-      expect(result).toHaveLength(2);
-      expect(result[0].number).toBe(1);
-      expect(result[0].title).toBe('Bug report');
-      expect(result[0].labels).toEqual(['bug']);
-      expect(result[1].labels).toEqual(['enhancement']);
+    expect(pr).toEqual({
+      prNumber: 123,
+      prUrl: 'https://github.com/owner/repo/pull/123',
     });
+    expect(execSpy).toHaveBeenCalledWith('gh', expect.arrayContaining([
+      'pr',
+      'create',
+      '--repo',
+      'owner/repo',
+      '--title',
+      'PR title',
+      '--body',
+      'PR body',
+      '--head',
+      'feat/test',
+    ]));
+  });
 
-    it('必須フィールド (number, title, url) が欠けている Issue は除外される', async () => {
-      const mockIssues = [
-        { number: 1, title: 'Valid', url: 'https://github.com/owner/repo/issues/1', body: '', labels: [] },
-        { title: 'No number', url: 'https://example.com', body: '', labels: [] },
-        { number: 3, url: 'https://github.com/owner/repo/issues/3', body: '', labels: [] },
-      ];
-      vi.spyOn(agent as any, 'exec').mockResolvedValue(JSON.stringify(mockIssues));
+  it('getIssue は gh issue view のJSONを SourceIssue にパースする', async () => {
+    const agent = new GitHubAgent();
+    vi.spyOn(agent as any, 'exec').mockResolvedValue(JSON.stringify({
+      number: 42,
+      title: 'Fix bug',
+      body: 'Issue body',
+      url: 'https://github.com/owner/repo/issues/42',
+      labels: [{ name: 'bug' }, { name: 'urgent' }],
+      updatedAt: '2026-06-06T00:00:00Z',
+    }));
 
-      const result = await agent.listOpenIssues('owner', 'repo');
+    const issue = await agent.getIssue('owner', 'repo', 42);
 
-      expect(result).toHaveLength(1);
-      expect(result[0].number).toBe(1);
+    expect(issue).toEqual({
+      number: 42,
+      title: 'Fix bug',
+      body: 'Issue body',
+      url: 'https://github.com/owner/repo/issues/42',
+      labels: ['bug', 'urgent'],
+      updatedAt: '2026-06-06T00:00:00Z',
     });
   });
 
-  describe('getIssue()', () => {
-    it('単一 Issue を正しくパースする', async () => {
-      const mockIssue = {
-        number: 5,
-        title: 'Test issue',
-        body: 'Issue body',
-        url: 'https://github.com/owner/repo/issues/5',
-        labels: [],
-      };
-      vi.spyOn(agent as any, 'exec').mockResolvedValue(JSON.stringify(mockIssue));
-
-      const result = await agent.getIssue('owner', 'repo', 5);
-
-      expect(result.number).toBe(5);
-      expect(result.title).toBe('Test issue');
-      expect(result.body).toBe('Issue body');
+  it('cloneRepo は gh auth token を使って git clone する', async () => {
+    const agent = new GitHubAgent();
+    const execSpy = vi.spyOn(agent as any, 'exec').mockImplementation(async (command: string, args: string[]) => {
+      if (command === 'gh' && args.join(' ') === 'auth token') return 'token-123\n';
+      if (command === 'git' && args[0] === 'clone') return '';
+      throw new Error(`unexpected command: ${command} ${args.join(' ')}`);
     });
 
-    it('パースに失敗したとき例外をスローする', async () => {
-      vi.spyOn(agent as any, 'exec').mockResolvedValue(JSON.stringify({ title: 'No number' }));
+    await (agent as any).cloneRepo('owner', 'repo', checkoutPath);
 
-      await expect(agent.getIssue('owner', 'repo', 5)).rejects.toThrow('Failed to parse issue');
-    });
+    expect(execSpy).toHaveBeenCalledWith('git', [
+      'clone',
+      'https://x-access-token:token-123@github.com/owner/repo.git',
+      checkoutPath,
+    ]);
   });
 
-  describe('createIssue()', () => {
-    it('Issue URL から issueNumber と issueUrl を正しくパースする', async () => {
-      vi.spyOn(agent as any, 'exec').mockResolvedValue(
-        'https://github.com/owner/repo/issues/99\n'
-      );
+  it('createBranch は既存remote branchがある場合に origin/branch をcheckoutする', async () => {
+    const agent = new GitHubAgent();
+    vi.spyOn(agent as any, 'pathExists').mockResolvedValue(true);
+    vi.spyOn(agent as any, 'ensureBaseBranch').mockResolvedValue(undefined);
+    vi.spyOn(agent as any, 'execAllowFailure').mockResolvedValue('abc\trefs/heads/feat/test\n');
+    const execSpy = vi.spyOn(agent as any, 'exec').mockResolvedValue('');
 
-      const result = await agent.createIssue('owner', 'repo', 'Issue title', 'Issue body');
+    await agent.createBranch('owner', 'repo', 'feat/test');
 
-      expect(result.issueNumber).toBe(99);
-      expect(result.issueUrl).toBe('https://github.com/owner/repo/issues/99');
-    });
-
-    it('URL が含まれない出力では例外をスローする', async () => {
-      vi.spyOn(agent as any, 'exec').mockResolvedValue('no url here\n');
-
-      await expect(
-        agent.createIssue('owner', 'repo', 'title', 'body')
-      ).rejects.toThrow('Failed to parse issue URL');
-    });
+    expect(execSpy).toHaveBeenCalledWith('git', ['fetch', 'origin', 'feat/test'], expect.any(String));
+    expect(execSpy).toHaveBeenCalledWith('git', ['checkout', '-B', 'feat/test', 'origin/feat/test'], expect.any(String));
+    expect(execSpy).not.toHaveBeenCalledWith('git', expect.arrayContaining(['push']), expect.any(String));
   });
 
-  describe('exec エラーハンドリング', () => {
-    it('execFileAsync が失敗したとき意味のあるエラーメッセージをスローする', async () => {
-      const { execFile } = await import('child_process');
-      const errorMock = Object.assign(new Error('command not found'), {
-        stderr: 'gh: command not found',
-        stdout: '',
-      });
+  it('git/gh コマンド失敗は呼び出し元へ例外として伝播する', async () => {
+    const agent = new GitHubAgent();
+    vi.spyOn(agent as any, 'exec').mockRejectedValue(new Error('gh failed'));
 
-      vi.spyOn(agent as any, 'exec').mockRejectedValue(
-        new Error('gh pr create failed: gh: command not found')
-      );
+    await expect(agent.createRepo('owner', 'repo')).rejects.toThrow('gh failed');
+  });
 
-      await expect(
-        agent.createPr('owner', 'repo', 'branch', 'title', 'body')
-      ).rejects.toThrow('failed');
-    });
+  it('dirty な __context worktree はファイル一覧と復旧手順を含めて停止する', async () => {
+    const agent = new GitHubAgent();
+    const execSpy = mockDirtyCheckout(agent, ' M src/app.ts\n?? notes/local.md\n');
+
+    await expect(
+      (agent as any).syncExistingCheckout('owner', 'repo', checkoutPath, 'main', '__context')
+    ).rejects.toThrow(/__context:[\s\S]*src\/app\.ts[\s\S]*notes\/local\.md[\s\S]*Recovery/);
+
+    expect(execSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('ECOSYSTEM_PRODUCT_WORKTREE の dirty も対象名とファイル名を表示する', async () => {
+    process.env.ECOSYSTEM_PRODUCT_WORKTREE = checkoutPath;
+    const agent = new GitHubAgent();
+    mockDirtyCheckout(agent, 'M  README.md\n');
+
+    await expect(
+      agent.syncProductWorktree('owner', 'repo')
+    ).rejects.toThrow(/ECOSYSTEM_PRODUCT_WORKTREE:[\s\S]*README\.md/);
   });
 });

@@ -139,6 +139,24 @@ describe('LLM フォールバックシナリオ', () => {
   });
 
   describe('既に上限マーク済みプロバイダーのスキップ', () => {
+    it('同一エージェントの連続呼び出し中に上限へ到達した後、次回は Codex を直接使う', async () => {
+      const agent = new BaseAgent('', 'PlanningAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+
+      execSpy
+        .mockResolvedValueOnce(CLAUDE_SUCCESS)
+        .mockRejectedValueOnce(new Error('usage limit exceeded'))
+        .mockResolvedValueOnce(CODEX_SUCCESS)
+        .mockResolvedValueOnce(CODEX_SUCCESS);
+
+      expect(await agent.invoke('first call')).toBe('Claude response');
+      expect(await agent.invoke('second call')).toBe(CODEX_SUCCESS);
+      expect(await agent.invoke('third call')).toBe(CODEX_SUCCESS);
+
+      expect(execSpy).toHaveBeenCalledTimes(4);
+      expect(execSpy.mock.calls[3][0]).toBe('codex');
+    });
+
     it('Claude がセッション内で一度上限に達した後、次回呼び出しは Codex を直接使う', async () => {
       const agent1 = new BaseAgent('', 'PlanningAgent');
       const execSpy1 = vi.spyOn(agent1 as any, '_execCommand');
@@ -188,6 +206,19 @@ describe('LLM フォールバックシナリオ', () => {
 
       const { LlmUsageLimitError } = await import('../utils/llm-errors.js');
       await expect(agent.invoke('hello')).rejects.toThrow();
+    });
+
+    it('primary と fallback がどちらも上限ならワークフローを停止する', async () => {
+      process.env.FALLBACK_LLM_PROVIDER = 'gemini';
+      const agent = new BaseAgent('', 'PlanningAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+
+      execSpy
+        .mockRejectedValueOnce(new Error('usage limit exceeded'))
+        .mockRejectedValueOnce(new Error('TerminalQuotaError: quota exceeded'));
+
+      await expect(agent.invoke('hello')).rejects.toThrow('TerminalQuotaError');
+      expect(execSpy).toHaveBeenCalledTimes(2);
     });
   });
 });

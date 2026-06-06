@@ -6,6 +6,7 @@ export type TaskStatus =
   | 'fixing'
   | 'approved'
   | 'merged'
+  | 'skipped'
   | 'failed';
 
 export type ProjectPhase =
@@ -20,6 +21,28 @@ export type ProjectPhase =
 export type ProjectMode = 'new' | 'modify';
 
 export type TaskComplexity = 'low' | 'medium' | 'high';
+
+export type TaskCheckName =
+  | 'build-gate'
+  | 'typescript'
+  | 'install'
+  | 'test'
+  | 'coverage'
+  | 'test-regression';
+
+export type TaskCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
+
+export interface TaskCheckResult {
+  name: TaskCheckName;
+  status: TaskCheckStatus;
+  summary: string;
+  command?: string;
+  exitCode?: number;
+  timedOut?: boolean;
+  severity?: ReviewComment['severity'];
+  details?: string;
+  updatedAt: string;
+}
 
 export interface SourceIssue {
   number: number;
@@ -46,6 +69,8 @@ export interface Task {
   prNumber?: number;
   prUrl?: string;
   reviewIteration: number;
+  /** 直近の決定論ゲート結果。再試行時は同名チェックを最新結果で上書きする。 */
+  lastChecks?: TaskCheckResult[];
   errorMessage?: string;
   createdAt: string;
   updatedAt: string;

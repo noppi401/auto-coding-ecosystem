@@ -261,11 +261,13 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `COVERAGE_CHECK_ENABLED` | `false` | Enable coverage measurement (`true` to enable). Requires a `test:coverage` script in `package.json` |
 | `COVERAGE_LINE_THRESHOLD` | `70` | Line coverage threshold (%). Below this adds a suggestion comment |
 | `COVERAGE_BRANCH_THRESHOLD` | `60` | Branch coverage threshold (%). Below this adds a suggestion comment |
+| `COVERAGE_CHECK_STRICT` | `false` | When `true`, missing, unparsed, or failed coverage checks are treated as blocking |
 | `CODEX_REVIEW_ENABLED` | `false` | Enable independent Codex review |
 | `CODEX_MODEL` | Codex CLI default | Model passed to Codex CLI |
 | `CODEX_INTELLIGENCE` | Codex CLI default | Codex CLI `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
+| `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent-specific timeout. Falls back to `AGENT_COMMAND_TIMEOUT_MS`, then `900000` |
 | `RESUME_AGENT_SESSIONS` | `false` | Use Claude session continuation |
-| `AGENT_COMMAND_TIMEOUT_MS` | `900000` | Agent command timeout (ms) |
+| `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent command timeout (ms). CodexAgent uses it when `CODEX_TIMEOUT_MS` is unset |
 | `REPO_CONTEXT_SUMMARY` | `false` | On modify, summarize repository context once and reuse across requirements/design/task decomposition to reduce tokens. Enable with `true` |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | Max characters of context passed to the summary agent |
 | `REPO_CONTEXT_MAX_FILES` | `80` | Max files read when scanning an existing repo |
@@ -302,7 +304,7 @@ cd .ecosystem\worktrees\<owner>\<repo>\__context
 
 In Phase 2, this `__context` worktree is synced to `origin/<BASE_BRANCH>` immediately after each PR merge and again just before Phase 2 completes. If sync fails, Phase 2 is marked as failed rather than completed.
 
-If `__context` has uncommitted changes, automatic sync is paused for safety. Stash or commit your changes before retrying.
+If `__context` has uncommitted changes, automatic sync is paused for safety. The error includes the target path, `git status --porcelain` file list, and recovery steps. Stash or commit your changes before retrying.
 
 Additionally, if `~/Documents/Products/<repo>` exists, it is also synced as a verification checkout. For example:
 
@@ -322,7 +324,7 @@ To change just the `Products` root across multiple repos:
 ECOSYSTEM_PRODUCT_ROOT=C:\path\to\Products
 ```
 
-If the Products directory has uncommitted changes, sync is also paused for safety.
+If the Products directory has uncommitted changes, sync is also paused for safety. The error includes whether the target came from `ECOSYSTEM_PRODUCT_WORKTREE` or the Products checkout, plus the dirty file list.
 
 The following is an example verification procedure for a generated app with a backend / frontend structure (using Prisma). Adapt as needed for your generated app's structure.
 

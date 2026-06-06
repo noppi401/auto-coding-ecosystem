@@ -1,18 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Text, useApp, useStdout } from 'ink';
+import { Box, Text, useApp, useStdout, useInput, Key } from 'ink';
 import Spinner from 'ink-spinner';
 import { theme } from '../theme.js';
 import { useEcosystemState } from '../hooks/useEcosystemState.js';
 import { useKeybinds } from '../hooks/useKeybinds.js';
 import { TaskList } from '../components/TaskList.js';
 import { CurrentTaskCard } from '../components/CurrentTaskCard.js';
-import { LogStream } from '../components/LogStream.js';
+import { filterLogEvents, LogStream } from '../components/LogStream.js';
 import { RecoveryMenu } from '../components/RecoveryMenu.js';
 import { FooterHints } from '../components/FooterHints.js';
+import { resolveRunFooterScope } from '../footer-scope.js';
 import { Orchestrator } from '../../orchestrator.js';
 import { StateManager } from '../../state/manager.js';
 import { bus } from '../../events.js';
+import { openExternalUrl } from '../../utils/open-url.js';
 import type { Task } from '../../state/types.js';
+import type { LogEvent } from '../../events.js';
 
 function elapsed(startMs: number): string {
   const s = Math.floor((Date.now() - startMs) / 1000);
@@ -20,6 +23,31 @@ function elapsed(startMs: number): string {
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+type LogFilterMode = 'all' | 'warn-error' | 'error' | 'github' | 'agent' | 'review';
+
+const LOG_FILTERS: Array<{
+  mode: LogFilterMode;
+  label: string;
+  levels?: LogEvent['level'][];
+  sources?: LogEvent['source'][];
+}> = [
+  { mode: 'all', label: 'all' },
+  { mode: 'warn-error', label: 'warn/error', levels: ['warn', 'error'] },
+  { mode: 'error', label: 'error', levels: ['error'] },
+  { mode: 'github', label: 'github', sources: ['github'] },
+  { mode: 'agent', label: 'agent', sources: ['agent'] },
+  { mode: 'review', label: 'review', sources: ['review'] },
+];
+
+function nextLogFilter(mode: LogFilterMode): LogFilterMode {
+  const index = LOG_FILTERS.findIndex((filter) => filter.mode === mode);
+  return LOG_FILTERS[(index + 1) % LOG_FILTERS.length].mode;
+}
+
+function getLogFilter(mode: LogFilterMode) {
+  return LOG_FILTERS.find((filter) => filter.mode === mode) ?? LOG_FILTERS[0];
 }
 
 interface Props {
@@ -42,6 +70,12 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
   const [phase2Started, setPhase2Started]   = useState(false);
   const [orchestratorRunning, setOrchestratorRunning] = useState(false);
   const [previewTasks, setPreviewTasks]     = useState<Task[] | null>(null);
+  const [logSearchTerm, setLogSearchTerm]   = useState('');
+  const [logSearchDraft, setLogSearchDraft] = useState('');
+  const [logSearchActive, setLogSearchActive] = useState(false);
+  const [logFilterMode, setLogFilterMode]   = useState<LogFilterMode>('all');
+  const [logScrollOffset, setLogScrollOffset] = useState(0);
+  const [logFollow, setLogFollow]           = useState(true);
 
   // elapsed timer
   useEffect(() => {
@@ -85,9 +119,15 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
   const focusedTask: Task | null = tasks[focusedIndex] ?? null;
 
   const openPr = useCallback((task: Task | null) => {
-    if (!task?.prUrl) return;
-    const { execSync } = require('child_process');
-    try { execSync(`start "" "${task.prUrl}"`); } catch { /* ignore */ }
+    if (!task?.prUrl) {
+      setRunError('このタスクにはPR URLがありません。');
+      return;
+    }
+    openExternalUrl(task.prUrl)
+      .then(() => setRunError(null))
+      .catch((err) => {
+        setRunError(`PRをブラウザで開けませんでした: ${task.prUrl} (${String(err)})`);
+      });
   }, []);
 
   const quit = useCallback(() => {
@@ -128,7 +168,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
     if (!task || task.status !== 'failed' || orchestratorRunning) return;
     setExpandedTaskId(null);
     const manager = new StateManager();
-    await manager.updateTask(task.id, { status: 'merged', errorMessage: undefined });
+    await manager.updateTask(task.id, { status: 'skipped', errorMessage: undefined });
     launchPhase2(false);
   }, [focusedTask, orchestratorRunning, launchPhase2]);
 
@@ -167,14 +207,98 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
     q: quit,
   }, !showLog);
 
-  useKeybinds({
-    escape: () => setShowLog(false),
-    l:      () => setShowLog(false),
-    q:      quit,
-  }, showLog);
-
   const termWidth = stdout?.columns ?? 120;
   const leftWidth = 36;
+  const logVisibleLines = 19;
+  const logFilter = getLogFilter(logFilterMode);
+  const filteredLogCount = filterLogEvents(ecoState.logs, {
+    searchTerm: logSearchTerm,
+    levelFilter: logFilter.levels,
+    sourceFilter: logFilter.sources,
+  }).length;
+  const maxLogScrollOffset = Math.max(0, filteredLogCount - logVisibleLines);
+  const scrollLog = useCallback((delta: number) => {
+    setLogFollow(false);
+    setLogScrollOffset((offset) => Math.min(maxLogScrollOffset, Math.max(0, offset + delta)));
+  }, [maxLogScrollOffset]);
+  const jumpLogTop = useCallback(() => {
+    setLogFollow(false);
+    setLogScrollOffset(maxLogScrollOffset);
+  }, [maxLogScrollOffset]);
+  const jumpLogBottom = useCallback(() => {
+    setLogFollow(true);
+    setLogScrollOffset(0);
+  }, []);
+  const applyLogSearch = useCallback(() => {
+    setLogSearchTerm(logSearchDraft.trim());
+    setLogSearchActive(false);
+    setLogFollow(true);
+    setLogScrollOffset(0);
+  }, [logSearchDraft]);
+
+  useInput((input: string, key: Key) => {
+    if (!showLog) return;
+
+    const keyWithBackspace = key as Key & { backspace?: boolean; delete?: boolean };
+    if (logSearchActive) {
+      if (key.escape) {
+        setLogSearchActive(false);
+        return;
+      }
+      if (key.return || input === '\r' || input === '\n') {
+        applyLogSearch();
+        return;
+      }
+      if (keyWithBackspace.backspace || keyWithBackspace.delete || input === '\u0008' || input === '\u007f') {
+        setLogSearchDraft((draft) => draft.slice(0, -1));
+        return;
+      }
+      if (input.length === 1 && input >= ' ') {
+        setLogSearchDraft((draft) => draft + input);
+      }
+      return;
+    }
+
+    if (key.escape || input === 'l') {
+      setShowLog(false);
+      return;
+    }
+    if (input === 'q') {
+      quit();
+      return;
+    }
+    if (input === 'k') {
+      scrollLog(1);
+      return;
+    }
+    if (input === 'j') {
+      scrollLog(-1);
+      return;
+    }
+    if (input === 'g') {
+      jumpLogTop();
+      return;
+    }
+    if (input === 'G') {
+      jumpLogBottom();
+      return;
+    }
+    if (input === '/') {
+      setLogSearchDraft(logSearchTerm);
+      setLogSearchActive(true);
+      return;
+    }
+    if (input === 'f') {
+      setLogFilterMode((mode) => nextLogFilter(mode));
+      setLogFollow(true);
+      setLogScrollOffset(0);
+      return;
+    }
+    if (input === 'p') {
+      if (!logFollow) setLogScrollOffset(0);
+      setLogFollow(!logFollow);
+    }
+  }, { isActive: showLog });
 
   const phaseLabel = ecoState.phase === 'coding_loop' ? 'Phase 2 · Coding Loop'
     : ecoState.phase === 'requirements'    ? 'Phase 1 · Requirements'
@@ -183,6 +307,12 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
     : ecoState.phase === 'awaiting_approval' ? 'Phase 1 · Complete'
     : ecoState.phase === 'completed'       ? 'Complete'
     : ecoState.phase ?? '';
+  const footerScope = resolveRunFooterScope({
+    showLog,
+    inRecovery,
+    hasPreview: Boolean(previewTasks),
+    awaitingPhase2Start: ecoState.phase === 'awaiting_approval' && !phase2Started,
+  });
 
   return (
     <Box flexDirection="column" height={process.stdout.rows}>
@@ -242,7 +372,20 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
                   <Text color={theme.fgFaint}>待機中...</Text>
                 )}
               </Box>
-              <LogStream logs={ecoState.logs} visibleLines={19} />
+              <LogStream
+                logs={ecoState.logs}
+                visibleLines={logVisibleLines}
+                searchTerm={logSearchTerm}
+                levelFilter={logFilter.levels}
+                sourceFilter={logFilter.sources}
+                scrollOffset={logScrollOffset}
+                follow={logFollow}
+                statusItems={[
+                  logSearchActive ? `search: ${logSearchDraft || '(typing)'}` : logSearchTerm ? `search: ${logSearchTerm}` : '',
+                  `filter: ${logFilter.label}`,
+                  logFollow ? 'follow' : `paused +${logScrollOffset}`,
+                ].filter(Boolean)}
+              />
             </>
           ) : (
             <>
@@ -309,7 +452,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
       )}
 
       {/* Footer */}
-      <FooterHints scope={showLog ? 'log' : 'run'} />
+      <FooterHints scope={footerScope} />
     </Box>
   );
 };

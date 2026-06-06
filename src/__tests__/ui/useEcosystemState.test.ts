@@ -165,6 +165,18 @@ describe('useEcosystemState', () => {
     expect(result.current.currentTaskIndex).toBe(3);
   });
 
+  it('アンマウント時にイベントリスナーを解除する', async () => {
+    const before = bus.listenerCount('task:update');
+    const { useEcosystemState } = await import('../../ui/hooks/useEcosystemState.js');
+    const { unmount } = renderHook(() => useEcosystemState());
+
+    await waitFor(() => expect(bus.listenerCount('task:update')).toBe(before + 1));
+
+    unmount();
+
+    expect(bus.listenerCount('task:update')).toBe(before);
+  });
+
   it('StateManager.load() がエラーを返すとき error フィールドが設定される', async () => {
     const { StateManager } = await import('../../state/manager.js');
     vi.mocked(StateManager).mockImplementationOnce(function() {

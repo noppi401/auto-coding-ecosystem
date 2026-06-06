@@ -127,12 +127,21 @@ const mockReviewAgent = {
     comments: [],
     summary: 'LGTM',
   }),
+  reReviewAfterFix: vi.fn().mockResolvedValue({
+    approved: true,
+    comments: [],
+    summary: 'LGTM after fix',
+  }),
   getHistory: vi.fn().mockReturnValue(null),
   setModelOverride: vi.fn(),
 };
 
 const mockFixAgent = {
-  fixCode: vi.fn().mockResolvedValue(undefined),
+  fixCode: vi.fn().mockResolvedValue({
+    files: [{ path: 'src/index.ts', content: 'export const fixed = true;' }],
+    commitMessage: 'fix: address review feedback',
+    fixSummary: 'Fixed review comments',
+  }),
   getHistory: vi.fn().mockReturnValue(null),
   setModelOverride: vi.fn(),
 };
@@ -151,6 +160,8 @@ const mockGitHubAgent = {
   requestChanges: vi.fn().mockResolvedValue(undefined),
   commentIssue: vi.fn().mockResolvedValue(undefined),
   closeIssue: vi.fn().mockResolvedValue(undefined),
+  pathExistsInWorktree: vi.fn().mockResolvedValue(true),
+  runCommandInWorktree: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false }),
   getRepositoryContext: vi.fn().mockResolvedValue(''),
   createIssue: vi.fn().mockResolvedValue({ issueNumber: 10, issueUrl: 'https://github.com/owner/repo/issues/10' }),
   syncContextWorktree: vi.fn().mockResolvedValue({ path: '/tmp', branch: 'main', commit: 'abc' }),
@@ -222,6 +233,8 @@ describe('Orchestrator', () => {
   beforeEach(() => {
     statePath = join(tmpdir(), `ace-orchestrator-test-${randomUUID()}`, 'state.json');
     process.env.BUILD_CHECK_ENABLED = 'false';
+    delete process.env.COVERAGE_CHECK_ENABLED;
+    delete process.env.COVERAGE_CHECK_STRICT;
     vi.clearAllMocks();
     // Re-establish default mock return values after clearAllMocks
     mockCodingAgent.generateCode.mockResolvedValue({
@@ -231,6 +244,24 @@ describe('Orchestrator', () => {
       prBody: 'Implementation PR',
     });
     mockGitHubAgent.commitFiles.mockResolvedValue(true);
+    mockGitHubAgent.readFiles.mockResolvedValue({});
+    mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(true);
+    mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+    mockReviewAgent.reviewPr.mockResolvedValue({
+      approved: true,
+      comments: [],
+      summary: 'LGTM',
+    });
+    mockReviewAgent.reReviewAfterFix.mockResolvedValue({
+      approved: true,
+      comments: [],
+      summary: 'LGTM after fix',
+    });
+    mockFixAgent.fixCode.mockResolvedValue({
+      files: [{ path: 'src/index.ts', content: 'export const fixed = true;' }],
+      commitMessage: 'fix: address review feedback',
+      fixSummary: 'Fixed review comments',
+    });
   });
 
   afterEach(async () => {
@@ -342,6 +373,47 @@ describe('Orchestrator', () => {
       expect(mockCodingAgent.generateCode).toHaveBeenCalled();
     });
 
+    it('skipped タスクは処理せず completed にしない', async () => {
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([makeTask({ status: 'skipped' })]);
+
+      const orchestrator = new Orchestrator(statePath);
+      await orchestrator.runPhase2();
+
+      const saved = await sm.load();
+      expect(mockCodingAgent.generateCode).not.toHaveBeenCalled();
+      expect(saved?.phase).not.toBe('completed');
+      expect(saved?.tasks[0].status).toBe('skipped');
+    });
+
+    it('レビューがblockingを返した場合は FixAgent に委譲して再レビューする', async () => {
+      mockReviewAgent.reviewPr.mockResolvedValueOnce({
+        approved: false,
+        comments: [{
+          path: 'src/index.ts',
+          line: 1,
+          body: 'Fix this behavior',
+          severity: 'blocking',
+        }],
+        summary: 'Needs fix',
+      });
+      mockReviewAgent.reReviewAfterFix.mockResolvedValueOnce({
+        approved: true,
+        comments: [],
+        summary: 'LGTM after fix',
+      });
+
+      const orchestrator = new Orchestrator(statePath);
+      await orchestrator.runPhase1('instruction', 'owner', 'repo');
+      await orchestrator.runPhase2();
+
+      expect(mockFixAgent.fixCode).toHaveBeenCalledOnce();
+      expect(mockReviewAgent.reReviewAfterFix).toHaveBeenCalledOnce();
+      expect(mockGitHubAgent.mergePr).toHaveBeenCalled();
+    });
+
     it('LlmUsageLimitError が発生したとき task を failed にしてリスロー', async () => {
       const { LlmUsageLimitError } = await import('../utils/llm-errors.js');
       mockCodingAgent.generateCode.mockRejectedValueOnce(
@@ -352,6 +424,97 @@ describe('Orchestrator', () => {
       await orchestrator.runPhase1('instruction', 'owner', 'repo');
 
       await expect(orchestrator.runPhase2()).rejects.toThrow('usage limit');
+    });
+  });
+
+  describe('deterministic build checks', () => {
+    async function prepareTaskState(task: Task = makeTask()): Promise<{ orchestrator: any; state: ProjectState; task: Task }> {
+      const orchestrator = new Orchestrator(statePath) as any;
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([task]);
+      const state = await sm.load();
+      if (!state) throw new Error('state not found');
+      return { orchestrator, state, task };
+    }
+
+    it('BUILD_CHECK_ENABLED=false のとき warning comment と lastChecks を残す', async () => {
+      process.env.BUILD_CHECK_ENABLED = 'false';
+      const { orchestrator, state, task } = await prepareTaskState();
+
+      const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+
+      expect(comments[0].severity).toBe('suggestion');
+      expect(comments[0].body).toContain('BUILD_CHECK_ENABLED=false');
+
+      const { StateManager } = await import('../state/manager.js');
+      const saved = await new StateManager(statePath).load();
+      expect(saved?.tasks[0].lastChecks?.find((check) => check.name === 'build-gate')?.status).toBe('skipped');
+    });
+
+    it('package-lock.json がある場合は npm ci で依存を入れる', async () => {
+      process.env.BUILD_CHECK_ENABLED = 'true';
+      const { orchestrator, state, task } = await prepareTaskState();
+      mockGitHubAgent.readFiles
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({
+          'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+          'package-lock.json': '{}',
+        });
+      mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(false);
+      mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+
+      await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+
+      expect(mockGitHubAgent.runCommandInWorktree).toHaveBeenCalledWith(
+        'owner',
+        'repo',
+        task.branchName,
+        'npm',
+        ['ci'],
+        180000
+      );
+    });
+
+    it('coverage有効で test:coverage がない場合は未計測を可視化する', async () => {
+      process.env.BUILD_CHECK_ENABLED = 'true';
+      process.env.COVERAGE_CHECK_ENABLED = 'true';
+      const { orchestrator, state, task } = await prepareTaskState();
+      mockGitHubAgent.readFiles
+        .mockResolvedValueOnce({})
+        .mockResolvedValueOnce({
+          'package.json': JSON.stringify({ scripts: { test: 'vitest run' } }),
+        });
+      mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(true);
+      mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+
+      const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+
+      expect(comments.some((comment: any) => comment.body.includes('カバレッジ未計測'))).toBe(true);
+      const { StateManager } = await import('../state/manager.js');
+      const saved = await new StateManager(statePath).load();
+      expect(saved?.tasks[0].lastChecks?.find((check) => check.name === 'coverage')?.status).toBe('warning');
+    });
+
+    it('テストケース削除・無効化・弱体化を blocking として検出する', () => {
+      const orchestrator = new Orchestrator(statePath) as any;
+      const diff = [
+        'diff --git a/src/foo.test.ts b/src/foo.test.ts',
+        '@@',
+        "-it('keeps behavior', () => {",
+        '-  expect(result).toBe(42);',
+        '+it.skip(\'keeps behavior\', () => {',
+        '+  expect(result).toBeDefined();',
+      ].join('\n');
+
+      const comments = orchestrator._detectTestDeletion(diff);
+
+      expect(comments.map((comment: any) => comment.body).join('\n')).toContain('テスト無効化禁止');
+      expect(comments.map((comment: any) => comment.body).join('\n')).toContain('テストケース削除禁止');
+      expect(comments.map((comment: any) => comment.body).join('\n')).toContain('アサーション削除禁止');
+      expect(comments.map((comment: any) => comment.body).join('\n')).toContain('アサーション弱体化禁止');
+      expect(comments.every((comment: any) => comment.severity === 'blocking')).toBe(true);
     });
   });
 });

@@ -24,6 +24,8 @@ interface WorktreeSyncInfo {
   commit: string;
 }
 
+type WorktreeSyncTarget = '__context' | 'ECOSYSTEM_PRODUCT_WORKTREE' | 'Products checkout' | 'checkout';
+
 interface FileOp {
   path: string;
   content: string;
@@ -559,7 +561,7 @@ export class GitHubAgent {
   async syncContextWorktree(owner: string, repo: string): Promise<WorktreeSyncInfo> {
     const baseBranch = process.env.BASE_BRANCH || 'main';
     const worktree = this.getWorktreePath(owner, repo, '__context');
-    return this.syncExistingCheckout(owner, repo, worktree, baseBranch);
+    return this.syncExistingCheckout(owner, repo, worktree, baseBranch, '__context');
   }
 
   async syncProductWorktree(owner: string, repo: string): Promise<WorktreeSyncInfo | null> {
@@ -577,14 +579,21 @@ export class GitHubAgent {
       return null;
     }
 
-    return this.syncExistingCheckout(owner, repo, checkoutPath, baseBranch);
+    return this.syncExistingCheckout(
+      owner,
+      repo,
+      checkoutPath,
+      baseBranch,
+      explicitPath ? 'ECOSYSTEM_PRODUCT_WORKTREE' : 'Products checkout'
+    );
   }
 
   private async syncExistingCheckout(
     owner: string,
     repo: string,
     checkoutPath: string,
-    baseBranch: string
+    baseBranch: string,
+    target: WorktreeSyncTarget = 'checkout'
   ): Promise<WorktreeSyncInfo> {
     const worktree = resolve(checkoutPath);
 
@@ -596,8 +605,11 @@ export class GitHubAgent {
 
     const statusBeforeSync = await this.exec('git', ['status', '--porcelain'], worktree);
     if (statusBeforeSync.trim()) {
-      throw new Error(
-        `Worktree has uncommitted changes and cannot be synchronized safely: ${worktree}`
+      throw this.buildDirtyWorktreeError(
+        'Worktree has uncommitted changes and cannot be synchronized safely',
+        target,
+        worktree,
+        statusBeforeSync
       );
     }
 
@@ -607,8 +619,11 @@ export class GitHubAgent {
 
     const statusAfterSync = await this.exec('git', ['status', '--porcelain'], worktree);
     if (statusAfterSync.trim()) {
-      throw new Error(
-        `Worktree is dirty after synchronization: ${worktree}`
+      throw this.buildDirtyWorktreeError(
+        'Worktree is dirty after synchronization',
+        target,
+        worktree,
+        statusAfterSync
       );
     }
 
@@ -625,6 +640,43 @@ export class GitHubAgent {
       branch: baseBranch,
       commit: localCommit,
     };
+  }
+
+  private buildDirtyWorktreeError(
+    reason: string,
+    target: WorktreeSyncTarget,
+    worktree: string,
+    porcelainStatus: string
+  ): Error {
+    const statusLines = porcelainStatus
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter(Boolean);
+    const inlineStatus = statusLines.slice(0, 3).join(', ');
+    const visibleLines = statusLines.slice(0, 20).map((line) => `- ${line}`);
+    if (statusLines.length > visibleLines.length) {
+      visibleLines.push(`- ... ${statusLines.length - visibleLines.length} more file(s)`);
+    }
+
+    logger.warn('Worktree synchronization stopped because worktree is dirty', {
+      target,
+      path: worktree,
+      status: inlineStatus,
+    });
+
+    return new Error([
+      `${reason} in ${target}: ${inlineStatus}`,
+      `Path: ${worktree}`,
+      '',
+      'git status --porcelain:',
+      ...visibleLines,
+      '',
+      'Recovery:',
+      '- Commit or stash the listed changes, then retry.',
+      '- Move local-only edits out of this checkout if they should not be synchronized.',
+      '- If this is the wrong product checkout, update ECOSYSTEM_PRODUCT_WORKTREE or ECOSYSTEM_PRODUCT_ROOT.',
+      'ACE did not run destructive cleanup for these dirty files.',
+    ].join('\n'));
   }
 
   private getWorktreePath(owner: string, repo: string, branch: string): string {
