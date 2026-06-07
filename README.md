@@ -6,6 +6,133 @@ Auto Coding Ecosystem、略称 **ACE（エース）** は、Claude / Codex / Git
 
 > 初めて触る方は、仕組みと使い方を図解した HTML ガイド [`docs/guide.html`](docs/guide.html) をブラウザで開いてください。
 
+## スクリーンショット
+
+### ホームメニュー（`npm run dev`）
+
+```text
+ ▲  Auto Coding Ecosystem
+
+ ◆  何をしますか？
+ │  ● New request              新しい依頼を作成
+ │  ○ Run from Issue           既存リポジトリの open Issue を選んで実行
+ │  ○ Resume Phase 2  (myorg/my-app)  未完了のコーディングループに復帰
+ │  ○ Phase 1 only             計画のみ実行（Issue起票して停止）
+ │  ○ Show status              現在のプロジェクト状態を表示
+ │  ○ Quit
+ └
+```
+
+### 依頼ウィザード（New request）
+
+```text
+ ◆  プロジェクトの種類
+ │  ● 新規リポジトリを作成する    新しいリポジトリを作成して実装
+ │  ○ 既存リポジトリを改修する    既存のリポジトリに機能追加・修正
+ └
+
+ ◆  新規リポジトリ名
+ │  my-new-app
+ └
+
+ ◆  依頼文の入力方法
+ │  ● 1行で入力              短い指示向け
+ │  ○ エディタで複数行入力    $EDITOR / notepad を開いて改行込みで入力
+ └
+
+ ◆  どのフェーズを実行しますか？
+ │  ● Phase 1 + 2  (計画→実装まで自動)  推奨
+ │  ○ Phase 1 only  (計画のみ・Issue起票)
+ │  ○ Phase 2 only  (既存の計画から再開)
+ └
+
+ ◆  実行AI（第1候補）
+ │  ● Claude   Anthropic Claude CLI
+ │  ○ Codex    OpenAI Codex CLI
+ │  ○ Gemini   Google Gemini CLI
+ └
+
+ ◇  準備完了 · myorg/my-new-app · phase1+2 · claude→codex
+```
+
+### 実行画面（Phase 2 コーディングループ）
+
+```text
+▲ Auto Coding Ecosystem · myorg/my-app · Phase 2 · Coding Loop · ⣷ 実行中 · 00:03:42
+────────────────────────────────────────────────────────────────────────────────────────
+ #1 ✓ プロジェクトのセットアップ          │ Task 4/6 · Issue #7 · タスク一覧コマンドの実装
+ #2 ✓ データ永続化層の実装                │ ────────────────────────────────────────────
+ #3 ✓ タスク追加コマンドの実装            │ [info]  CodingAgent: generating code...
+ #4 ⣷ タスク一覧コマンドの実装            │ [info]  Running tsc --noEmit...
+ #5 ○ タスク完了・削除コマンドの実装      │ [info]  Running npm test...
+ #6 ○ E2E テストとドキュメント            │ [info]  ReviewAgent: checking diff...
+                                           │ [info]  No blocking issues found.
+                                           │ [info]  GitHubAgent: merging PR #8...
+────────────────────────────────────────────────────────────────────────────────────────
+  ↑↓ フォーカス  Enter 展開  l ログ  o PR を開く  q 終了
+```
+
+### タスク承認プレビュー（Issue 起票前）
+
+```text
+▲ Auto Coding Ecosystem · myorg/my-app · Phase 1 · Task Decomp · ⏸ 入力待ち · 00:01:12
+────────────────────────────────────────────────────────────────────────────────────────
+ ▶ タスク分解結果（6件）· Issue 起票前の確認
+   1. プロジェクトのセットアップ [low]
+   2. データ永続化層の実装 [medium]
+   3. タスク追加コマンドの実装 [low]
+   4. タスク一覧コマンドの実装 [low]
+   5. タスク完了・削除コマンドの実装 [medium]
+   6. E2E テストとドキュメント [medium]
+   Enter で承認して Issue 起票 · c で中止
+────────────────────────────────────────────────────────────────────────────────────────
+```
+
+### セッション完了画面（SummaryScreen）
+
+```text
+▲ Session complete · myorg/my-app · duration 00:18:45
+────────────────────────────────────────────────────────────────────────────────────────
+    6 merged      0 failed      0 skipped      0 pending
+  ██████████████████████████████████████████  100%
+
+──────────────────────────────────────────────────────────────────────────────────────
+ #  TASK                               STATUS        PR     ISSUE   ITER  CHECK
+ 1  プロジェクトのセットアップ          ✓ merged      #2     #1      -     -
+ 2  データ永続化層の実装                ✓ merged      #4     #3      -     -
+ 3  タスク追加コマンドの実装            ✓ merged      #6     #5      -     -
+ 4  タスク一覧コマンドの実装            ✓ merged      #8     #7      2/5   -
+ 5  タスク完了・削除コマンドの実装      ✓ merged      #10    #9      -     -
+ 6  E2E テストとドキュメント            ✓ merged      #12    #11     -     -
+──────────────────────────────────────────────────────────────────────────────────────
+  REPOSITORY  https://github.com/myorg/my-app
+  ↑↓ フォーカス  l ログ  Enter 再実行  q 終了
+```
+
+### ステータス確認（`npm run dev -- status`）
+
+```text
+Project   : myorg/my-app
+Repo      : https://github.com/myorg/my-app
+Phase     : coding_loop
+Instruction: Node.js でタスク管理 CLI を作る。タスクの追加、一覧、完了、削除ができ...
+Progress  : [████████░░░░░░░░░░░░░░░░] 33%  (2/6)
+Summary   : merged 2  in-progress 1  pending 3  skipped 0  failed 0
+
+#   TASK                                 STATUS       ISSUE   PR     AGE     DETAIL
+---------------------------------------------------------------------------------------------
+1   プロジェクトのセットアップ             merged       #1      #2     45m00s  -
+2   データ永続化層の実装                   merged       #3      #4     32m18s  -
+3   タスク追加コマンドの実装               in-progress  #5      #6     03m41s  -
+4   タスク一覧コマンドの実装               pending      #7      -      0s      -
+5   タスク完了・削除コマンドの実装          pending      #9      -      0s      -
+6   E2E テストとドキュメント               pending      #11     -      0s      -
+
+Links:
+  1. プロジェクトのセットアップ  issue https://github.com/myorg/my-app/issues/1  pr https://github.com/myorg/my-app/pull/2
+  ...
+```
+
 ## 仕組み（パイプラインとエージェント構成）
 
 オーケストレーター（`Orchestrator`）が各エージェントを順に呼び出し、状態は `.ecosystem/state.json`（`StateManager`）に保存されます。各エージェントは `BaseAgent` を継承し、LLM provider（Claude / Codex / Gemini / local）の呼び出し・フォールバック・利用上限検知を共通化しています。
