@@ -101,6 +101,8 @@ When in doubt, mark as **suggestion**, not blocking. A PR that works correctly a
 - Git diffs showing `^[` or binary-looking bytes around color codes — this is normal for scripts that use ANSI colors
 - If the diff appears "truncated" or "corrupted" after color variable definitions, assume the rest of the implementation is valid and review only what is visible
 
+- References (e.g. `package.json` scripts, imports in config) to files listed under **OTHER PLANNED TASKS** — those files are created by later tasks, so their absence from this diff is expected. Flag a missing file as blocking only if no other task plans to create it
+
 ## Guidelines
 
 - Be specific: include file, line number, and clear description

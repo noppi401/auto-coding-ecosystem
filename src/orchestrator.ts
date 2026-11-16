@@ -19,6 +19,7 @@ import { isLlmUsageLimitError } from './utils/llm-errors.js';
 import { resolveTaskModel } from './utils/model-routing.js';
 import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
 import { trimPrDiff } from './utils/diff-trim.js';
+import { describeOtherTasks } from './utils/other-tasks.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -547,15 +548,17 @@ export class Orchestrator {
       const buildComments = await this._runBuildCheck(githubAgent, state, task);
 
       // Review
+      const otherTasksContext = describeOtherTasks(state.tasks, task);
       const reviewResult =
         iteration === 1
           ? await reviewAgent.reviewPr(
               task,
               prDiff,
               state.requirementsDoc,
-              state.designDoc
+              state.designDoc,
+              otherTasksContext
             )
-          : await reviewAgent.reReviewAfterFix(task, prDiff);
+          : await reviewAgent.reReviewAfterFix(task, prDiff, otherTasksContext);
 
       const combinedReviewResult = await this._runCodexReviewIfEnabled(
         task,

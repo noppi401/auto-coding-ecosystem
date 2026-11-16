@@ -5,6 +5,13 @@ import { logger } from '../utils/logger.js';
 const REQ_DOC_MAX = 4000;
 const DESIGN_DOC_MAX = 3000;
 const DIFF_MAX = 20000;
+function otherTasksSection(otherTasksContext: string): string {
+  if (!otherTasksContext) return '';
+  return `OTHER PLANNED TASKS (these files are created by separate tasks later; do NOT flag references to them as blocking):
+${otherTasksContext}
+
+`;
+}
 
 export class ReviewAgent extends BaseAgent {
   constructor() {
@@ -15,7 +22,8 @@ export class ReviewAgent extends BaseAgent {
     task: Task,
     prDiff: string,
     requirementsDoc: string,
-    designDoc: string
+    designDoc: string,
+    otherTasksContext: string = ''
   ): Promise<ReviewResult> {
     await this.loadSystemPrompt();
 
@@ -32,7 +40,7 @@ ${requirementsDoc.substring(0, REQ_DOC_MAX)}
 DESIGN (excerpt):
 ${designDoc.substring(0, DESIGN_DOC_MAX)}
 
-PR DIFF (first ${DIFF_MAX} chars):
+${otherTasksSection(otherTasksContext)}PR DIFF (first ${DIFF_MAX} chars):
 ${prDiff.substring(0, DIFF_MAX)}
 
 Return ONLY valid JSON (no markdown, no explanations) with this structure:
@@ -69,7 +77,8 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
 
   async reReviewAfterFix(
     task: Task,
-    updatedPrDiff: string
+    updatedPrDiff: string,
+    otherTasksContext: string = ''
   ): Promise<ReviewResult> {
     await this.loadSystemPrompt();
 
@@ -81,7 +90,7 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
 
 TASK: ${task.title}
 
-UPDATED DIFF (first ${DIFF_MAX} chars):
+${otherTasksSection(otherTasksContext)}UPDATED DIFF (first ${DIFF_MAX} chars):
 ${updatedPrDiff.substring(0, DIFF_MAX)}
 
 Please check if all blocking issues have been fixed and suggest any remaining improvements.
