@@ -1671,7 +1671,8 @@ ${repositoryContext || '(repository context was not loaded)'}
         /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
         line.startsWith('+') &&
         !line.startsWith('+++') &&
-        (/[\s.](?:skip|todo)\s*[.(]/.test(line) || /\b(?:xit|xtest)\s*\(/.test(line)) &&
+        // テストランナーの it/test/describe/suite の .skip/.todo のみ対象（変数名 todo/skip は対象外）
+        (/\b(?:it|test|describe|suite)\.(?:skip|todo)\b/.test(line) || /\b(?:xit|xtest)\s*\(/.test(line)) &&
         !reportedSkip.has(currentFile)
       ) {
         reportedSkip.add(currentFile);

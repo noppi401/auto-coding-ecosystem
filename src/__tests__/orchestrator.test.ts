@@ -519,5 +519,38 @@ describe('Orchestrator', () => {
       expect(comments.map((comment: any) => comment.body).join('\n')).toContain('アサーション弱体化禁止');
       expect(comments.every((comment: any) => comment.severity === 'blocking')).toBe(true);
     });
+
+    describe('テスト無効化の判定は、テストランナーの skip/todo 呼び出しに限る', () => {
+      const disabledComments = (addedLine: string) => {
+        const orchestrator = new Orchestrator(statePath) as any;
+        const diff = ['diff --git a/tests/app.test.js b/tests/app.test.js', '@@', `+${addedLine}`].join('\n');
+        return orchestrator
+          ._detectTestDeletion(diff)
+          .filter((comment: any) => comment.body.includes('テスト無効化禁止'));
+      };
+
+      // ToDo アプリでは変数名 todo / skip が自然に現れる。これらを無効化と誤判定しない。
+      it.each([
+        "  assert.equal(typeof todo.id, 'number');",
+        '  const result = todo.title;',
+        '  expect(todo.completed).toBe(false);',
+        '  const next = skip(items, 2);',
+        '  list.skip(3);',
+      ])('変数名・通常の呼び出しは無効化と誤判定しない: %s', (line) => {
+        expect(disabledComments(line)).toHaveLength(0);
+      });
+
+      it.each([
+        "it.skip('x', () => {});",
+        "  test.skip('x', () => {});",
+        "describe.skip('suite', () => {});",
+        "  it.todo('later');",
+        "test.todo('later');",
+        "xit('x', () => {});",
+        "xtest('x', () => {});",
+      ])('テストランナーの無効化は検出する: %s', (line) => {
+        expect(disabledComments(line)).toHaveLength(1);
+      });
+    });
   });
 });
