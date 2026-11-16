@@ -4,6 +4,8 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
+import { resolveClaudeBin } from '../utils/claude-bin.js';
+import { killProcessTree } from '../utils/process-tree.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import {
@@ -409,16 +411,18 @@ export class BaseAgent {
   }
 
   protected async _execCommand(command: string, args: string[], stdin?: string): Promise<string> {
+    const claudeBin = command === 'claude' ? await resolveClaudeBin() : null;
     return new Promise((resolve, reject) => {
       // On Windows, use cmd.exe to execute the command
       const isWindows = process.platform === 'win32';
 
       // Use shell: true on Windows to allow Node to handle cmd.exe wrapping and argument escaping.
       // This prevents "positional prompt" errors caused by manual string concatenation.
-      const child = spawn(command, args, {
+      // ただし claude は cmd.exe 経由だと応答しなくなる事象があるため、実体が見つかれば直接起動する。
+      const child = spawn(claudeBin ?? command, args, {
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
-        shell: isWindows,
+        shell: isWindows && !claudeBin,
       });
 
       let stdout = '';
@@ -439,7 +443,7 @@ export class BaseAgent {
 
       const timeoutMs = Number(process.env.AGENT_COMMAND_TIMEOUT_MS || '900000');
       const timeout = setTimeout(() => {
-        child.kill();
+        killProcessTree(child);
         reject(new Error(`Command timeout after ${Math.round(timeoutMs / 1000)}s`));
       }, timeoutMs);
 
