@@ -428,6 +428,10 @@ export class BaseAgent {
       let stdout = '';
       let stderr = '';
 
+      // チャンクごとの toString() だとマルチバイト文字が境界で分断され文字化けする
+      child.stdout?.setEncoding('utf8');
+      child.stderr?.setEncoding('utf8');
+
       child.stdout?.on('data', (data) => {
         stdout += data.toString();
       });

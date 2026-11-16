@@ -48,11 +48,15 @@ export class FixAgent extends BaseAgent {
       });
     }
 
+    // hunk は行番号で位置を指定するため、実ファイルには 1 始まりの行番号を付けて渡す
+    // （pr.diff は hunk の対象ではないのでそのまま）。番号はファイル内容の一部ではない。
+    const withLineNumbers = (text: string) =>
+      text.split('\n').map((line, i) => `${i + 1}| ${line}`).join('\n');
     const currentFilesText = Object.entries(currentFiles)
-      .map(
-        ([path, content]) =>
-          `FILE: ${path}\n${content.substring(0, 8000)}`
-      )
+      .map(([path, content]) => {
+        const body = content.substring(0, 8000);
+        return `FILE: ${path}\n${path === 'pr.diff' ? body : withLineNumbers(body)}`;
+      })
       .join('\n\n');
 
     const prompt = `Fix the code based on the review comments.
@@ -60,7 +64,7 @@ export class FixAgent extends BaseAgent {
 TASK: ${task.title}
 SUMMARY: ${task.summary}
 
-CURRENT FILES (with 1-indexed line numbers):
+CURRENT FILES (each line is prefixed with "N| " where N is its 1-indexed line number; the prefix is NOT part of the file, never include it in newLines):
 ${currentFilesText}
 
 REVIEW COMMENTS TO ADDRESS:
