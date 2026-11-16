@@ -148,7 +148,8 @@ Return ONLY valid JSON (no markdown, no explanations) with this structure:
       path: c.path,
       line: c.line,
       body: c.body,
-      severity: c.severity,
+      // 想定外・欠落した severity は見逃しを防ぐため blocking 扱いにする
+      severity: String(c.severity ?? '').toLowerCase() === 'suggestion' ? 'suggestion' : 'blocking',
     }));
     return {
       approved: data.approved || false,

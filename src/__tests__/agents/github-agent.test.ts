@@ -163,4 +163,48 @@ describe('GitHubAgent', () => {
       agent.syncProductWorktree('owner', 'repo')
     ).rejects.toThrow(/ECOSYSTEM_PRODUCT_WORKTREE:[\s\S]*README\.md/);
   });
+
+  describe('commitFiles', () => {
+    function mockWorktree(agent: GitHubAgent) {
+      vi.spyOn(agent as any, 'getWorktreePath').mockReturnValue(checkoutPath);
+      vi.spyOn(agent as any, 'pathExists').mockResolvedValue(true);
+      return vi.spyOn(agent as any, 'exec').mockImplementation(async (_command: string, args: string[]) =>
+        args[0] === 'status' ? ' M src/a.ts\n' : ''
+      );
+    }
+
+    it('worktree 外を指すパスは書き込まずに拒否する', async () => {
+      const agent = new GitHubAgent();
+      const execSpy = mockWorktree(agent);
+
+      await expect(
+        agent.commitFiles('owner', 'repo', 'feat/x', [{ path: '../escape.txt', content: 'x' }], 'msg')
+      ).rejects.toThrow('Refusing path outside worktree');
+
+      await expect(fs.access(join(checkoutPath, '..', 'escape.txt'))).rejects.toThrow();
+      expect(execSpy).not.toHaveBeenCalled();
+    });
+
+    it('書き込んだファイルだけを git add する', async () => {
+      const agent = new GitHubAgent();
+      const execSpy = mockWorktree(agent);
+
+      await agent.commitFiles('owner', 'repo', 'feat/x', [{ path: 'src/a.ts', content: 'a' }], 'msg');
+
+      expect(await fs.readFile(join(checkoutPath, 'src/a.ts'), 'utf-8')).toBe('a');
+      expect(execSpy).toHaveBeenCalledWith('git', ['add', '--', 'src/a.ts'], checkoutPath);
+      expect(execSpy).not.toHaveBeenCalledWith('git', ['add', '.'], expect.anything());
+    });
+  });
+
+  it('exec のエラーメッセージから gh トークンを伏せる', async () => {
+    const agent = new GitHubAgent();
+    const err = await (agent as any)
+      .exec('git', ['-C', join(checkoutPath, 'missing'), 'clone', 'https://x-access-token:secret-123@github.com/o/r.git'])
+      .catch((e: Error) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).not.toContain('secret-123');
+    expect(err.message).toContain('x-access-token:***@');
+  });
 });
