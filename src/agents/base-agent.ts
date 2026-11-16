@@ -485,9 +485,19 @@ export class BaseAgent {
   protected robustJsonParse(input: string): any {
     let cleaned = input.trim();
 
+    // 0. そのままパースできるならそれを採用（JSON 文字列内の ``` を誤抽出しない）
+    try {
+      return JSON.parse(cleaned);
+    } catch { /* fall through to extraction */ }
+
     // 1. Markdownコードブロックからの抽出を試行
+    // フェンスが最初の { より前にある場合のみ対象（JSON 文字列内の ``` は無視）
     const markdownMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
-    if (markdownMatch && markdownMatch[1]) {
+    const firstCurlyIdx = cleaned.indexOf('{');
+    if (
+      markdownMatch && markdownMatch[1] &&
+      (firstCurlyIdx === -1 || (markdownMatch.index ?? 0) < firstCurlyIdx)
+    ) {
       cleaned = markdownMatch[1].trim();
     } else {
       // 2. 最初の { と 最後の } の間を抽出
@@ -501,6 +511,15 @@ export class BaseAgent {
     try {
       return JSON.parse(cleaned);
     } catch (firstErr) {
+      // 2b. フォールバック: 囲みの内側に ``` がある場合、元の入力から { ～ } を切り出す
+      const origFirst = input.indexOf('{');
+      const origLast = input.lastIndexOf('}');
+      if (origFirst !== -1 && origLast > origFirst) {
+        try {
+          return JSON.parse(input.substring(origFirst, origLast + 1));
+        } catch { /* ignore */ }
+      }
+
       // 3. フォールバック: 二重エスケープ（\" など）のハンドリング
       if (cleaned.includes('\\"')) {
         try {

@@ -251,6 +251,33 @@ describe('BaseAgent', () => {
       const result = (agent as any).robustJsonParse(input);
       expect(result.key).toBe('value');
     });
+
+    // README 等の本文に ``` が含まれる場合、JSON 文字列内のフェンスを誤抽出しない
+    const readmeLines = ['# App', '```bash', 'node server.js', '```', 'end'];
+
+    it('純粋な JSON の文字列内に ``` があっても全体をパースできる', () => {
+      const input = JSON.stringify({
+        files: [{ path: 'README.md', newLines: readmeLines }],
+        fixSummary: 'ok',
+      });
+      const result = (agent as any).robustJsonParse(input);
+      expect(result.files[0].newLines).toEqual(readmeLines);
+      expect(result.fixSummary).toBe('ok');
+    });
+
+    it('```json で囲まれた JSON の文字列内に ``` があっても全体をパースできる', () => {
+      const json = JSON.stringify({ files: [{ path: 'README.md', newLines: readmeLines }] });
+      const input = '```json\n' + json + '\n```';
+      const result = (agent as any).robustJsonParse(input);
+      expect(result.files[0].newLines).toEqual(readmeLines);
+    });
+
+    it('前置きテキスト + 囲み JSON（内部に ``` あり）もパースできる', () => {
+      const json = JSON.stringify({ files: [{ path: 'README.md', newLines: readmeLines }] });
+      const input = 'Here is the result:\n```json\n' + json + '\n```\nDone.';
+      const result = (agent as any).robustJsonParse(input);
+      expect(result.files[0].newLines).toEqual(readmeLines);
+    });
   });
 
   describe('getSessionId() / setSessionId()', () => {
