@@ -148,6 +148,7 @@ export class GitHubAgent {
       await fs.writeFile(filePath, file.content);
     }
 
+    await this.excludeBuildArtifacts(worktree);
     await this.exec('git', ['add', '.'], worktree);
     const status = await this.exec('git', ['status', '--porcelain'], worktree);
     if (!status.trim()) {
@@ -158,6 +159,27 @@ export class GitHubAgent {
     await this.exec('git', ['commit', '-m', commitMessage], worktree);
     await this.exec('git', ['push', 'origin', branch], worktree);
     return true;
+  }
+
+  /**
+   * npm install / tsc 等のパイプライン自身のチェックが作る node_modules/ と dist/ を
+   * `git add .` の対象から外す。対象リポジトリに .gitignore が無い場合、これらが PR に
+   * 混入し差分が巨大化してレビューが続行できなくなるため。リポジトリの .gitignore は
+   * 変更せず、ローカル専用の info/exclude に追記する（コミットされない）。
+   */
+  private async excludeBuildArtifacts(worktree: string): Promise<void> {
+    const entries = ['node_modules/', 'dist/'];
+    const rel = (await this.exec('git', ['rev-parse', '--git-path', 'info/exclude'], worktree)).trim();
+    const excludePath = resolve(worktree, rel);
+
+    const existing = await fs.readFile(excludePath, 'utf-8').catch(() => '');
+    const present = new Set(existing.split('\n').map((l) => l.trim()));
+    const missing = entries.filter((e) => !present.has(e));
+    if (missing.length === 0) return;
+
+    await fs.mkdir(dirname(excludePath), { recursive: true });
+    const prefix = existing && !existing.endsWith('\n') ? '\n' : '';
+    await fs.writeFile(excludePath, `${existing}${prefix}${missing.join('\n')}\n`);
   }
 
   async readFiles(

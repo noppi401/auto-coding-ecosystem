@@ -41,6 +41,54 @@ describe('GitHubAgent', () => {
     });
   }
 
+  describe('excludeBuildArtifacts（node_modules / dist を git add . から除外）', () => {
+    const git = async (args: string[], cwd: string) => {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const { stdout } = await promisify(execFile)('git', args, { cwd });
+      return stdout;
+    };
+
+    async function setupRepo(gitignore?: string): Promise<string> {
+      await fs.mkdir(checkoutPath, { recursive: true });
+      await git(['init', '-q'], checkoutPath);
+      if (gitignore !== undefined) await fs.writeFile(join(checkoutPath, '.gitignore'), gitignore);
+      for (const f of ['src/a.ts', 'node_modules/pkg/index.js', 'dist/src/a.js']) {
+        await fs.mkdir(join(checkoutPath, f, '..'), { recursive: true });
+        await fs.writeFile(join(checkoutPath, f), 'x');
+      }
+      return checkoutPath;
+    }
+
+    const stagedFiles = async (dir: string) =>
+      (await git(['ls-files', '--cached'], dir)).split('\n').map((s) => s.trim()).filter(Boolean);
+
+    it('.gitignore が無いリポジトリでも node_modules と dist をステージしない', async () => {
+      const dir = await setupRepo();
+      await (new GitHubAgent() as any).excludeBuildArtifacts(dir);
+      await git(['add', '.'], dir);
+
+      expect(await stagedFiles(dir)).toEqual(['src/a.ts']);
+    });
+
+    it('呼び出しを繰り返しても除外エントリを重複追記しない', async () => {
+      const dir = await setupRepo();
+      const agent = new GitHubAgent() as any;
+      await agent.excludeBuildArtifacts(dir);
+      await agent.excludeBuildArtifacts(dir);
+
+      const exclude = await fs.readFile(join(dir, '.git', 'info', 'exclude'), 'utf-8');
+      expect(exclude.split('\n').filter((l) => l.trim() === 'node_modules/')).toHaveLength(1);
+    });
+
+    it('既存の .gitignore は書き換えない', async () => {
+      const dir = await setupRepo('custom-ignore\n');
+      await (new GitHubAgent() as any).excludeBuildArtifacts(dir);
+
+      expect(await fs.readFile(join(dir, '.gitignore'), 'utf-8')).toBe('custom-ignore\n');
+    });
+  });
+
   it('createRepo は gh repo create を正しい引数で呼ぶ', async () => {
     const agent = new GitHubAgent();
     const execSpy = vi.spyOn(agent as any, 'exec').mockResolvedValue('');
