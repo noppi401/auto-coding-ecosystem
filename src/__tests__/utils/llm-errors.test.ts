@@ -52,14 +52,16 @@ describe('isClaudeUsageLimitMessage', () => {
     'usage limit reached',
     'Claude usage limit',
     'rate limit exceeded',
-    'quota exhausted',
     'credit balance insufficient',
-    'billing issue',
     'limit reached',
     'too many requests',
     'purchase more credits',
-    'try again at 2024-01-01',
-    'error 429',
+    '429 Too Many Requests',
+    'You exceeded your current quota, please check your plan and billing details.',
+    'insufficient_quota',
+    'Quota exceeded. Check your plan and billing details.',
+    'rate_limit_error',
+    "You've hit your usage limit. Try again at 3:00 PM.",
   ])('"%s" → true', (msg) => {
     expect(isClaudeUsageLimitMessage(msg)).toBe(true);
   });
@@ -68,6 +70,10 @@ describe('isClaudeUsageLimitMessage', () => {
     'internal server error',
     'invalid request',
     'authentication failed',
+    'feat: add billing page',
+    'handle quota overflow',
+    'src/a.ts:429',
+    'retry after 429ms',
   ])('"%s" → false', (msg) => {
     expect(isClaudeUsageLimitMessage(msg)).toBe(false);
   });

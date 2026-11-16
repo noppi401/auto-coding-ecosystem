@@ -531,22 +531,6 @@ export class GitHubAgent {
     }
   }
 
-  /*
-    for (const comment of comments) {
-      await this.exec('gh', [
-        'pr',
-        'review',
-        String(prNumber),
-        '--repo',
-        `${owner}/${repo}`,
-        '--comment',
-        '--body',
-        `File: ${comment.path}, Line: ${comment.line}\n${comment.body}`,
-      ]);
-    }
-  }
-  */
-
   async mergePr(owner: string, repo: string, prNumber: number): Promise<void> {
     await this.exec('gh', [
       'pr',

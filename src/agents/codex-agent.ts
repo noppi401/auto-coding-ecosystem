@@ -286,7 +286,8 @@ Return ONLY valid JSON with this structure:
         path: c.path || 'pull_request.diff',
         line: Number(c.line || 1),
         body: c.body || '',
-        severity: c.severity === 'blocking' ? 'blocking' : 'suggestion',
+        // ReviewAgent と同じく、想定外・欠落した severity は見逃しを防ぐため blocking 扱いにする
+        severity: String(c.severity ?? '').toLowerCase() === 'suggestion' ? 'suggestion' : 'blocking',
       })),
       summary: data.summary || '',
     };

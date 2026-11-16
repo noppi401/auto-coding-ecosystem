@@ -30,6 +30,23 @@ describe('CodexAgent', () => {
     }
   });
 
+  it('parseReview は severity の欠落・想定外の値を blocking、suggestion を suggestion に正規化する', () => {
+    const agent = new CodexAgent();
+    const result = (agent as any).parseReview(JSON.stringify({
+      approved: true,
+      comments: [
+        { path: 'a.ts', line: 1, body: 'missing' },
+        { path: 'b.ts', line: 2, body: 'upper', severity: 'Blocking' },
+        { path: 'c.ts', line: 3, body: 'unknown', severity: 'critical' },
+        { path: 'd.ts', line: 4, body: 'nit', severity: 'Suggestion' },
+      ],
+      summary: 's',
+    }));
+
+    expect(result.comments.map((c: { severity: string }) => c.severity))
+      .toEqual(['blocking', 'blocking', 'blocking', 'suggestion']);
+  });
+
   it('CODEX_TIMEOUT_MS が未指定なら AGENT_COMMAND_TIMEOUT_MS を使う', () => {
     process.env.AGENT_COMMAND_TIMEOUT_MS = '12345';
     const agent = new CodexAgent();

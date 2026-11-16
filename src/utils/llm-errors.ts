@@ -57,15 +57,16 @@ export function isLlmUsageLimitError(value: unknown): value is LlmUsageLimitErro
 function includesUsageLimitPattern(value: unknown): boolean {
   const message = String(value).toLowerCase();
   return [
+    // LLM の通常応答にも適用されるため、機能名や数値に一致する語（billing / quota / 429 等）は使わない
     'usage limit',
     'rate limit',
-    'quota',
-    'credit balance',
-    'billing',
+    'rate_limit',
     'limit reached',
     'too many requests',
+    'credit balance',
     'purchase more credits',
-    'try again at',
-    '429',
+    'quota exceeded',
+    'exceeded your current quota',
+    'insufficient_quota',
   ].some((pattern) => message.includes(pattern));
 }

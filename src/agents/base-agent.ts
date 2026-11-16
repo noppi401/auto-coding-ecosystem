@@ -84,11 +84,6 @@ export class BaseAgent {
     return this.lastInvokedProvider;
   }
 
-  // Backward compatibility
-  setHistory(_: any): void {
-    // no-op: sessions are managed by claude CLI
-  }
-
   getHistory(): string | null {
     return this.sessionId;
   }
@@ -395,17 +390,13 @@ export class BaseAgent {
     } catch (err) {
       const errMsg = String(err);
       // Gemini CLI 特有のクォータエラーメッセージを検知
-      if (errMsg.includes('TerminalQuotaError') || errMsg.includes('QUOTA_EXHAUSTED') || errMsg.includes('exhausted your capacity')) {
+      if (isGeminiUsageLimitMessage(errMsg)) {
         logger.warn(`${this.agentName} Gemini usage limit detected`);
         throw new LlmUsageLimitError('gemini', errMsg);
       }
       logger.error(`${this.agentName} Gemini CLI invocation failed`, { error: errMsg });
       throw err;
     }
-  }
-
-  protected async _execClaudeCommand(command: string, args: string[]): Promise<string> {
-    return await this._execCommand(command, args);
   }
 
   protected async _execCommand(command: string, args: string[], stdin?: string): Promise<string> {
