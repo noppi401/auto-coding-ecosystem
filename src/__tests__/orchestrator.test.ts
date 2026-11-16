@@ -480,6 +480,54 @@ describe('Orchestrator', () => {
       );
     });
 
+    describe('test script が一部のテストしか実行しない場合を検知する', () => {
+      const runGate = async (testScript: string, trackedFiles: string[]) => {
+        process.env.BUILD_CHECK_ENABLED = 'true';
+        const { orchestrator, state, task } = await prepareTaskState();
+        mockGitHubAgent.readFiles
+          .mockResolvedValueOnce({})
+          .mockResolvedValueOnce({ 'package.json': JSON.stringify({ scripts: { test: testScript } }) });
+        mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(true);
+        mockGitHubAgent.runCommandInWorktree.mockImplementation(
+          async (_o: string, _r: string, _b: string, cmd: string) => ({
+            stdout: cmd === 'git' ? trackedFiles.join('\n') : '',
+            stderr: '',
+            exitCode: 0,
+            timedOut: false,
+          })
+        );
+        const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+        const { StateManager } = await import('../state/manager.js');
+        const saved = await new StateManager(statePath).load();
+        const check = saved?.tasks[0].lastChecks?.find((c) => c.name === 'test-coverage-of-script');
+        return { comments, check };
+      };
+
+      it('npm test が通っても、未実行のテストファイルがあれば blocking にする', async () => {
+        const { comments, check } = await runGate('node --test tests/api.test.js', [
+          'tests/api.test.js',
+          'tests/integration.test.js',
+        ]);
+
+        const blocking = comments.filter((c: any) => c.severity === 'blocking');
+        expect(blocking).toHaveLength(1);
+        expect(blocking[0].path).toBe('package.json');
+        expect(blocking[0].body).toContain('tests/integration.test.js');
+        expect(blocking[0].body).not.toContain('- tests/api.test.js');
+        expect(check?.status).toBe('failed');
+      });
+
+      it('全テストを実行する script なら指摘しない', async () => {
+        const { comments, check } = await runGate('node --test', [
+          'tests/api.test.js',
+          'tests/integration.test.js',
+        ]);
+
+        expect(comments.filter((c: any) => c.severity === 'blocking')).toHaveLength(0);
+        expect(check?.status).toBe('passed');
+      });
+    });
+
     it('coverage有効で test:coverage がない場合は未計測を可視化する', async () => {
       process.env.BUILD_CHECK_ENABLED = 'true';
       process.env.COVERAGE_CHECK_ENABLED = 'true';

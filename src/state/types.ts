@@ -28,7 +28,8 @@ export type TaskCheckName =
   | 'install'
   | 'test'
   | 'coverage'
-  | 'test-regression';
+  | 'test-regression'
+  | 'test-coverage-of-script';
 
 export type TaskCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
 

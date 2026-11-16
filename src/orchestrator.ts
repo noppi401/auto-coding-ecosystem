@@ -21,6 +21,7 @@ import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance
 import { trimPrDiff } from './utils/diff-trim.js';
 import { describeOtherTasks } from './utils/other-tasks.js';
 import { fetchPrDiffAfterFix } from './utils/refetch-diff.js';
+import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -1483,6 +1484,39 @@ ${repositoryContext || '(repository context was not loaded)'}
             summary: 'npm test 通過',
             command: testCommand,
             exitCode: 0,
+          });
+        }
+
+        // test script が一部のテストしか実行しない場合、npm test の通過は他のテストの健全性を保証しない
+        const lsResult = await githubAgent.runCommandInWorktree(
+          state.githubOwner, state.githubRepo, task.branchName,
+          'git', ['ls-files'], 30000
+        );
+        const testFilesInRepo = (lsResult?.stdout ?? '')
+          .split('\n')
+          .map((l) => l.trim())
+          .filter((l) => /\.(?:test|spec)\.[cm]?[jt]sx?$/.test(l));
+        const unexecuted = findUnexecutedTestFiles(testScript as string, testFilesInRepo);
+        if (unexecuted.length > 0) {
+          logger.warn('test script does not run all test files', unexecuted.join(', '));
+          await this._recordTaskCheck(task, {
+            name: 'test-coverage-of-script',
+            status: 'failed',
+            summary: `test script が ${unexecuted.length} 件のテストファイルを実行しない`,
+            severity: 'blocking',
+            details: unexecuted.join('\n'),
+          });
+          comments.push({
+            path: 'package.json',
+            line: 1,
+            body: `**test script が全テストを実行していません**\n\n\`scripts.test\` (\`${testScript}\`) は次のテストファイルを実行しないため、\`npm test\` が通っても、それらの健全性が保証されません。\`scripts.test\` を、すべてのテストを実行するよう直してください（例: \`node --test\` にファイル引数を付けない、またはすべて列挙する）。\n\n${unexecuted.map((f) => `- ${f}`).join('\n')}`,
+            severity: 'blocking',
+          });
+        } else {
+          await this._recordTaskCheck(task, {
+            name: 'test-coverage-of-script',
+            status: 'passed',
+            summary: `test script は ${testFilesInRepo.length} 件のテストファイルをすべて実行対象にしている（または判定対象外）`,
           });
         }
       } else {
