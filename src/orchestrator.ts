@@ -20,6 +20,7 @@ import { resolveTaskModel } from './utils/model-routing.js';
 import { extractRelevantDoc, isDocRelevanceEnabled } from './utils/doc-relevance.js';
 import { trimPrDiff } from './utils/diff-trim.js';
 import { describeOtherTasks } from './utils/other-tasks.js';
+import { fetchPrDiffAfterFix } from './utils/refetch-diff.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -521,6 +522,8 @@ export class Orchestrator {
   ): Promise<void> {
     let iteration = 0;
     let lastFixInputDiff: string | null = null;
+    // 修正をコミットした直後のみ設定。push 直後の古い diff を掴まないよう再取得の基準にする。
+    let diffBaselineAfterFix: string | null = null;
 
     while (iteration < this.maxReviewIterations) {
       iteration++;
@@ -529,12 +532,12 @@ export class Orchestrator {
       );
 
       // Get PR info（Issue #6: 巨大 diff はトリミングしてレビュー/修正のトークンを抑える）
-      const rawPrDiff = await this.githubAgent.getPrDiff(
-        state.githubOwner,
-        state.githubRepo,
-        prNumber
+      const { raw: rawPrDiff, trimmed: prDiff } = await fetchPrDiffAfterFix(
+        () => this.githubAgent.getPrDiff(state.githubOwner, state.githubRepo, prNumber),
+        diffBaselineAfterFix,
+        trimPrDiff
       );
-      const prDiff = trimPrDiff(rawPrDiff);
+      diffBaselineAfterFix = null;
       if (prDiff.length < rawPrDiff.length) {
         logger.info(
           'PR diff trimmed before review',
@@ -728,6 +731,8 @@ export class Orchestrator {
         );
         if (!fixCommitted) {
           logger.warn('FixAgent produced no file changes', task.title);
+        } else {
+          diffBaselineAfterFix = lastFixInputDiff;
         }
 
         await this.stateManager.updateTask(task.id, {

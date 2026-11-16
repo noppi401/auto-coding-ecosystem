@@ -227,6 +227,9 @@ vi.mock('../agents/codex-agent.js', () => ({
 // Orchestrator を遅延インポートして、すべてのモックが適用された後に読み込む
 const { Orchestrator } = await import('../orchestrator.js');
 
+// モックの getPrDiff は常に同じ diff を返すため、push 直後の再取得待ち（既定 3 秒 × 4 回）を 0 にする
+process.env.PR_DIFF_REFETCH_DELAY_MS = '0';
+
 describe('Orchestrator', () => {
   let statePath: string;
 
