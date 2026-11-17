@@ -150,6 +150,24 @@ describe('BaseAgent', () => {
       expect(exec).toHaveBeenCalledTimes(1); // codex へフォールバックしない
     });
 
+    it('claude の出力トークン上限を既定で 64000 に引き上げ、明示設定があればそれを使う', async () => {
+      const agent = new BaseAgent('', 'CodingAgent');
+      const exec = vi.spyOn(agent as any, '_execCommand').mockResolvedValue(CLAUDE_SUCCESS);
+      const prev = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+      try {
+        delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+        await agent.invoke('m');
+        expect((exec.mock.calls[0][3] as any).env).toEqual({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: '64000' });
+
+        process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '20000';
+        await agent.invoke('m');
+        expect((exec.mock.calls[1][3] as any).env).toEqual({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: '20000' });
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+        else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = prev;
+      }
+    });
+
     it('claude はツールを一切使えない状態で起動する（ファイル書き込み・外部サービス操作を防ぐ）', async () => {
       const agent = new BaseAgent('', 'CodingAgent');
       const exec = vi.spyOn(agent as any, '_execCommand').mockResolvedValue(CLAUDE_SUCCESS);

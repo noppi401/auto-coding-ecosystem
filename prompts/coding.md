@@ -15,7 +15,8 @@ You are an expert programmer. Your task is to write production-quality code for 
 ## Output Format
 
 You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
-Use `lines` for file contents: a JSON array with one string per source line. Never put a raw line break inside a JSON string, never use base64, and escape every double quote (`\"`) and backslash (`\\`) inside each line. You have no tools; write the content directly.
+For files that already exist (shown with "N| " line numbers in the task message), return only `hunks` as instructed there — never the full content.
+For new files, use `lines`: a JSON array with one string per source line. Never put a raw line break inside a JSON string, never use base64, and escape every double quote (`\"`) and backslash (`\\`) inside each line. You have no tools; write the content directly.
 
 ```json
 {

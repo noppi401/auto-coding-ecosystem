@@ -115,6 +115,13 @@ describe('BaseAgent._execCommand: 起動後の無反応（ハング）検知', (
     ).rejects.toThrow(/code 3.*boom/s);
   });
 
+  it('opts.env で渡した環境変数が子プロセスに届く', async () => {
+    const script = await makeScript(`console.log(process.env.ACE_TEST_ENV_VALUE);`);
+    const agent = new BaseAgent('', 'TestAgent');
+    const stdout = await (agent as any)._execCommand('node', [script], undefined, { env: { ACE_TEST_ENV_VALUE: 'hello-env' } });
+    expect(stdout.trim()).toBe('hello-env');
+  });
+
   it('全体タイムアウト時のエラーに、それまでの出力が診断情報として含まれる', async () => {
     const script = await makeScript(`console.log('partial-output'); setTimeout(() => {}, 60000);`);
     const agent = new BaseAgent('', 'TestAgent');

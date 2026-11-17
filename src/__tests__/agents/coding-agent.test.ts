@@ -79,6 +79,63 @@ describe('CodingAgent.generateCode: 既存ファイルと他タスクの扱い',
   });
 });
 
+describe('CodingAgent: 既存ファイルは hunk（変更範囲）で返させる', () => {
+  const existing = { 'server.js': ['const a = 1;', 'const b = 2;', 'export { a, b };'].join('\n') };
+
+  it('既存ファイルは行番号付きで見せ、hunk で返すよう指示する（全文出力は出力上限を超える）', async () => {
+    const agent = new CodingAgent();
+    const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      okResponse([
+        { path: 'server.js', hunks: [{ startLine: 2, endLine: 2, newLines: ['const b = 3;'] }] },
+        { path: 'server.test.js', lines: ['t'] },
+      ])
+    );
+
+    const out = await agent.generateCode(makeTask(), 'req', 'design', existing);
+
+    const prompt = invoke.mock.calls[0][0] as string;
+    expect(prompt).toContain('2| const b = 2;');
+    expect(prompt).toMatch(/hunks/);
+    expect(out.files.find((f) => f.path === 'server.js')?.content).toBe('const a = 1;\nconst b = 3;\nexport { a, b };');
+  });
+
+  it('挿入（endLine = startLine - 1）で既存行を残したまま追加できる', () => {
+    const agent = new CodingAgent();
+    const out = agent.parseCodeFromResponse(
+      wrap([{ path: 'server.js', hunks: [{ startLine: 3, endLine: 2, newLines: ['const c = 3;'] }] }]),
+      existing
+    );
+    expect(out.files[0].content).toBe('const a = 1;\nconst b = 2;\nconst c = 3;\nexport { a, b };');
+  });
+
+  it('見せていないファイルへの hunk は、握りつぶさず例外にする', () => {
+    const agent = new CodingAgent();
+    expect(() =>
+      agent.parseCodeFromResponse(wrap([{ path: 'other.js', hunks: [{ startLine: 1, endLine: 1, newLines: ['x'] }] }]), existing)
+    ).toThrow(/other\.js/);
+  });
+
+  it('範囲外の行番号を指す hunk は例外にする（黙って末尾に足したりしない）', () => {
+    const agent = new CodingAgent();
+    expect(() =>
+      agent.parseCodeFromResponse(wrap([{ path: 'server.js', hunks: [{ startLine: 10, endLine: 12, newLines: ['x'] }] }]), existing)
+    ).toThrow(/out of range/);
+  });
+
+  it('重なり合う hunk は例外にする', () => {
+    const agent = new CodingAgent();
+    expect(() =>
+      agent.parseCodeFromResponse(
+        wrap([{ path: 'server.js', hunks: [
+          { startLine: 1, endLine: 2, newLines: ['x'] },
+          { startLine: 2, endLine: 3, newLines: ['y'] },
+        ] }]),
+        existing
+      )
+    ).toThrow(/overlap/);
+  });
+});
+
 describe('CodingAgent.parseCodeFromResponse: ファイル本文の形式', () => {
   const agent = new CodingAgent();
 

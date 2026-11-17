@@ -1,6 +1,7 @@
 import { BaseAgent } from './base-agent.js';
 import { Task, ReviewComment } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { applyHunks } from '../utils/hunks.js';
 
 export interface FixOutput {
   files: Array<{ path: string; content: string }>;
@@ -137,25 +138,13 @@ Rules:
     }
   }
 
-  private applyHunks(original: string, hunks: FixHunk[]): string {
-    const lines = original.split('\n');
-    // Apply in reverse order so earlier line numbers stay valid
-    const sorted = [...hunks].sort((a, b) => b.startLine - a.startLine);
-    for (const hunk of sorted) {
-      const start = Math.max(0, hunk.startLine - 1);
-      const deleteCount = Math.max(0, hunk.endLine - hunk.startLine + 1);
-      lines.splice(start, deleteCount, ...hunk.newLines);
-    }
-    return lines.join('\n');
-  }
-
   private normalizeFixOutput(data: any, currentFiles: { [path: string]: string }): FixOutput {
     const files = (data.files || []).map((file: any) => {
       const path: string = file.path;
 
       if (Array.isArray(file.hunks) && file.hunks.length > 0) {
         const existing = currentFiles[path] ?? '';
-        const content = this.applyHunks(existing, file.hunks as FixHunk[]);
+        const content = applyHunks(existing, file.hunks as FixHunk[]);
         return { path, content };
       }
 

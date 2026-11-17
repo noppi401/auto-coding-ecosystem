@@ -327,6 +327,8 @@ export class BaseAgent {
           stdout = await this._execCommand('claude', args, userMessage, {
             firstOutputTimeoutMs,
             finishOnResultEvent: true,
+            // CLI 既定の 32000 では、新規の大きなファイルで出力上限超過になるため余裕を持たせる
+            env: { CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000' },
           });
           break;
         } catch (err) {
@@ -454,7 +456,12 @@ export class BaseAgent {
     command: string,
     args: string[],
     stdin?: string,
-    opts: { firstOutputTimeoutMs?: number; finishOnResultEvent?: boolean; exitGraceMs?: number } = {}
+    opts: {
+      firstOutputTimeoutMs?: number;
+      finishOnResultEvent?: boolean;
+      exitGraceMs?: number;
+      env?: Record<string, string>;
+    } = {}
   ): Promise<string> {
     const claudeBin = command === 'claude' ? await resolveClaudeBin() : null;
     return new Promise((resolve, reject) => {
@@ -465,7 +472,7 @@ export class BaseAgent {
       // This prevents "positional prompt" errors caused by manual string concatenation.
       // ただし claude は cmd.exe 経由だと応答しなくなる事象があるため、実体が見つかれば直接起動する。
       const child = spawn(claudeBin ?? command, args, {
-        env: process.env,
+        env: { ...process.env, ...opts.env },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: isWindows && !claudeBin,
       });

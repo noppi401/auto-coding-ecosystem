@@ -1,6 +1,11 @@
 import { BaseAgent } from './base-agent.js';
 import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { Hunk, applyHunks, validateHunks } from '../utils/hunks.js';
+
+// hunk は行番号で位置を指定するため、既存ファイルには 1 始まりの行番号を付けて見せる（FixAgent と同じ形式）
+const withLineNumbers = (text: string) =>
+  text.split('\n').map((line, i) => `${i + 1}| ${line}`).join('\n');
 import { LlmUsageLimitError, isCodexUsageLimitMessage } from '../utils/llm-errors.js';
 
 export interface CodeOutput {
@@ -163,20 +168,27 @@ ${otherTasksContext}
 
 Implement ONLY this task's scope; leave anything listed above to its own task.
 
-` : ''}${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES (these files already exist; keep ALL existing code and tests, change only what this task requires, and return each file in full):
+` : ''}${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES (these files already exist; keep ALL existing code and tests and change only what this task requires.
+Each line is prefixed with "N| " where N is its 1-indexed line number; the prefix is NOT part of the file):
 ${Object.entries(currentFiles)
-  .map(([path, content]) => `--- FILE: ${path} ---\n${content}`)
+  .map(([path, content]) => `--- FILE: ${path} ---\n${withLineNumbers(content)}`)
   .join('\n\n')}
+
+For a file listed above, do NOT return its full content. Return only "hunks" that change it:
+{"path": "<existing file>", "hunks": [{"startLine": 10, "endLine": 12, "newLines": ["replacement line", "..."]}]}
+- startLine/endLine are 1-indexed and inclusive; newLines replaces those lines entirely (never include the "N| " prefix).
+- To insert without deleting, set endLine = startLine - 1 (e.g. startLine 21, endLine 20 inserts before line 21; use lineCount+1 to append).
+- Hunks must not overlap; list them in ascending startLine order.
 
 ` : ''}TARGET FILES:
 ${targetFiles.map((file) => `- ${file}`).join('\n') || '- not specified'}
 
 Please generate complete, production-ready code. Return ONLY valid JSON (no markdown, no explanations).
-Put each file body in "lines": a JSON array with ONE string per source line (no trailing newline characters inside the strings).
+For a NEW file, put its body in "lines": a JSON array with ONE string per source line (no trailing newline characters inside the strings).
 Never put a raw line break inside a JSON string, and do not use base64. Escape every double quote as \\" and every backslash as \\\\ inside each line.
 Use camelCase keys exactly as shown:
 {
-  "files": [{"path": "src/file.ts", "lines": ["first line of the file", "second line of the file"]}],
+  "files": [{"path": "src/new-file.ts", "lines": ["first line of the file", "second line of the file"]}],
   "commitMessage": "...",
   "prTitle": "...",
   "prBody": "..."
@@ -185,7 +197,7 @@ Use camelCase keys exactly as shown:
     let result = await this.invoke(prompt, 16000);
     let codeOutput: CodeOutput;
     try {
-      codeOutput = this.parseCodeFromResponse(result);
+      codeOutput = this.parseCodeFromResponse(result, currentFiles);
     } catch (err) {
       if (err instanceof LlmUsageLimitError) {
         throw err;
@@ -195,30 +207,30 @@ Use camelCase keys exactly as shown:
         [
           'Your previous response was not valid JSON.',
           'Return ONLY one valid JSON object.',
-          'Use a "lines" array (one string per source line) for every file body.',
+          'Use "hunks" for files that already exist and a "lines" array (one string per source line) for new files.',
           'Do not include markdown, explanations, base64, or raw line breaks inside JSON strings.',
           prompt,
         ].join('\n\n'),
         16000
       );
-      codeOutput = this.parseCodeFromResponse(result);
+      codeOutput = this.parseCodeFromResponse(result, currentFiles);
     }
 
     return codeOutput;
   }
 
-  parseCodeFromResponse(response: string): CodeOutput {
+  parseCodeFromResponse(response: string, existingFiles: Record<string, string> = {}): CodeOutput {
     try {
       this.throwIfUsageLimitTextResponse(response);
       const data = this.robustJsonParse(response);
-      return this.normalizeCodeOutput(data);
+      return this.normalizeCodeOutput(data, existingFiles);
     } catch (err) {
       logger.error('Failed to parse code output', err);
       throw err;
     }
   }
 
-  private normalizeCodeOutput(data: any): CodeOutput {
+  private normalizeCodeOutput(data: any, existingFiles: Record<string, string> = {}): CodeOutput {
     this.throwIfUsageLimitOutput(data?.error || data?.message || data?.result || data?.reason);
 
     if (!Array.isArray(data?.files)) {
@@ -237,7 +249,14 @@ Use camelCase keys exactly as shown:
       }
 
       let content: unknown;
-      if (Array.isArray(file.lines)) {
+      if (Array.isArray(file.hunks)) {
+        const original = existingFiles[file.path];
+        if (original === undefined) {
+          throw new Error(`CodingAgent returned hunks for "${file.path}", which was not shown as an existing file.`);
+        }
+        validateHunks(file.path, original.split('\n').length, file.hunks as Hunk[]);
+        content = applyHunks(original, file.hunks as Hunk[]);
+      } else if (Array.isArray(file.lines)) {
         if (!file.lines.every((l: unknown) => typeof l === 'string')) {
           throw new Error(`CodingAgent file entry "${file.path}" has a non-string item in lines.`);
         }
