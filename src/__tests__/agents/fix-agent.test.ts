@@ -65,3 +65,18 @@ describe('FixAgent: 行番号付きでファイルを渡す', () => {
     expect(JSON.parse(fixed).scripts.test).toBe('node --test tests/*.test.js');
   });
 });
+
+describe('FixAgent: 大きなファイルを切り詰めずに渡す', () => {
+  it('8000 文字を超えるファイルも全行を行番号付きで渡す（先頭しか見えないまま hunk 編集して壊していた）', async () => {
+    const agent = new FixAgent();
+    vi.spyOn(agent as any, 'loadSystemPrompt').mockResolvedValue(undefined);
+    const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      JSON.stringify({ files: [{ path: 'test/api.test.js', hunks: [{ startLine: 1, endLine: 1, newLines: ['x'] }] }], commitMessage: 'fix', fixSummary: '' })
+    );
+    const big = Array.from({ length: 1000 }, (_, i) => `it('case ${i}', () => {});`).join('\n'); // 約 26000 文字
+
+    await agent.fixCode(task, comments, { 'test/api.test.js': big });
+
+    expect(invoke.mock.calls[0][0] as string).toContain("1000| it('case 999', () => {});");
+  });
+});

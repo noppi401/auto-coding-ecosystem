@@ -53,9 +53,12 @@ export class FixAgent extends BaseAgent {
     // （pr.diff は hunk の対象ではないのでそのまま）。番号はファイル内容の一部ではない。
     const withLineNumbers = (text: string) =>
       text.split('\n').map((line, i) => `${i + 1}| ${line}`).join('\n');
+    // hunk は行番号で全体の位置を指すため、ファイルの先頭しか見せないと見えない部分を壊す。
+    // 実ファイルは全文（暴走防止の上限のみ）を渡し、pr.diff は従来どおり先頭だけ。
+    const fileMax = Number(process.env.FIX_CURRENT_FILE_MAX_CHARS || '60000');
     const currentFilesText = Object.entries(currentFiles)
       .map(([path, content]) => {
-        const body = content.substring(0, 8000);
+        const body = content.substring(0, path === 'pr.diff' ? 8000 : fileMax);
         return `FILE: ${path}\n${path === 'pr.diff' ? body : withLineNumbers(body)}`;
       })
       .join('\n\n');
