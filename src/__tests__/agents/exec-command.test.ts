@@ -60,11 +60,12 @@ describe('BaseAgent._execCommand: 起動後の無反応（ハング）検知', (
 
   it('期限内に最初の出力があれば、その後に時間がかかっても打ち切らない', async () => {
     const script = await makeScript(
-      `console.log('init'); setTimeout(() => console.log('done'), 800);`
+      `console.log('init'); setTimeout(() => console.log('done'), 2500);`
     );
     const agent = new BaseAgent('', 'TestAgent');
 
-    const stdout = await (agent as any)._execCommand('node', [script], undefined, { firstOutputTimeoutMs: 400 });
+    // 期限は node の起動（負荷時は遅い）より十分長く、かつ 2 回目の出力までの間隔より短くする
+    const stdout = await (agent as any)._execCommand('node', [script], undefined, { firstOutputTimeoutMs: 2000 });
 
     expect(stdout).toContain('init');
     expect(stdout).toContain('done');

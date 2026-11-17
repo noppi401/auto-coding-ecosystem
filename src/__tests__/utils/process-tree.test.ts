@@ -65,7 +65,9 @@ describe.skipIf(process.platform !== 'win32')('killProcessTree()（Windows）', 
     expect(isAlive(grandchildPid)).toBe(true);
 
     killProcessTree(child);
-    await sleep(1500);
+    // taskkill の完了は負荷で前後するため、固定待ちではなく終了するまで最大 10 秒ポーリングする
+    const deadline = Date.now() + 10000;
+    while (isAlive(grandchildPid) && Date.now() < deadline) await sleep(100);
 
     expect(isAlive(grandchildPid)).toBe(false);
   });

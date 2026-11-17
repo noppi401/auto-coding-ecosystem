@@ -15,18 +15,30 @@ You are an expert programmer. Your task is to write production-quality code for 
 ## Output Format
 
 You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
-Use `contentBase64` for file contents. Encode each complete file as UTF-8 base64 and do not put raw source code in JSON strings.
+Use `lines` for file contents: a JSON array with one string per source line. Never put a raw line break inside a JSON string, never use base64, and escape every double quote (`\"`) and backslash (`\\`) inside each line. You have no tools; write the content directly.
 
 ```json
 {
   "files": [
     {
       "path": "src/models/user.ts",
-      "contentBase64": "ZXhwb3J0IGludGVyZmFjZSBVc2VyIHt9Cg=="
+      "lines": [
+        "export interface User {",
+        "  id: string;",
+        "}"
+      ]
     },
     {
       "path": "src/__tests__/user.test.ts",
-      "contentBase64": "aW1wb3J0IHsgZGVzY3JpYmUgaXQgZXhwZWN0IH0gZnJvbSAnQGplc3QvZ2xvYmFscyc7Cg=="
+      "lines": [
+        "import { describe, it, expect } from '@jest/globals';",
+        "",
+        "describe('User', () => {",
+        "  it('has an id', () => {",
+        "    expect(true).toBe(true);",
+        "  });",
+        "});"
+      ]
     }
   ],
   "commitMessage": "feat: implement User model with password hashing",

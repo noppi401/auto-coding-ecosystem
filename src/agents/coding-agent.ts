@@ -155,10 +155,11 @@ ${Object.entries(currentFiles)
 ${targetFiles.map((file) => `- ${file}`).join('\n') || '- not specified'}
 
 Please generate complete, production-ready code. Return ONLY valid JSON (no markdown, no explanations).
-To avoid broken JSON escaping, put each file body in contentBase64 as UTF-8 base64. Do not include raw file content.
+Put each file body in "lines": a JSON array with ONE string per source line (no trailing newline characters inside the strings).
+Never put a raw line break inside a JSON string, and do not use base64. Escape every double quote as \\" and every backslash as \\\\ inside each line.
 Use camelCase keys exactly as shown:
 {
-  "files": [{"path": "src/file.ts", "contentBase64": "base64-encoded UTF-8 file content"}],
+  "files": [{"path": "src/file.ts", "lines": ["first line of the file", "second line of the file"]}],
   "commitMessage": "...",
   "prTitle": "...",
   "prBody": "..."
@@ -177,8 +178,8 @@ Use camelCase keys exactly as shown:
         [
           'Your previous response was not valid JSON.',
           'Return ONLY one valid JSON object.',
-          'Use contentBase64 for every file body.',
-          'Do not include markdown, explanations, or raw source code strings.',
+          'Use a "lines" array (one string per source line) for every file body.',
+          'Do not include markdown, explanations, base64, or raw line breaks inside JSON strings.',
           prompt,
         ].join('\n\n'),
         16000
@@ -218,12 +219,21 @@ Use camelCase keys exactly as shown:
         throw new Error(`CodingAgent file entry ${index + 1} is missing a valid path.`);
       }
 
-      const content = typeof file.contentBase64 === 'string'
-        ? Buffer.from(file.contentBase64, 'base64').toString('utf-8')
-        : file.content;
+      let content: unknown;
+      if (Array.isArray(file.lines)) {
+        if (!file.lines.every((l: unknown) => typeof l === 'string')) {
+          throw new Error(`CodingAgent file entry "${file.path}" has a non-string item in lines.`);
+        }
+        const joined = (file.lines as string[]).join('\n');
+        content = joined.endsWith('\n') ? joined : `${joined}\n`;
+      } else if (typeof file.contentBase64 === 'string') {
+        content = Buffer.from(file.contentBase64, 'base64').toString('utf-8');
+      } else {
+        content = file.content;
+      }
 
       if (typeof content !== 'string') {
-        throw new Error(`CodingAgent file entry "${file.path}" is missing contentBase64 or content.`);
+        throw new Error(`CodingAgent file entry "${file.path}" is missing lines (or contentBase64/content).`);
       }
 
       return {
