@@ -22,6 +22,7 @@ import { trimPrDiff } from './utils/diff-trim.js';
 import { describeOtherTasks } from './utils/other-tasks.js';
 import { fetchPrDiffAfterFix } from './utils/refetch-diff.js';
 import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
+import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -705,9 +706,11 @@ export class Orchestrator {
         );
 
         // Extract changed file paths from the diff so FixAgent has real file contents
-        const changedPaths = [...new Set(
-          [...prDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1])
-        )];
+        // 指摘が差分外のファイルを指す場合も、内容を渡す（見ていないファイルを新規扱いで上書きさせない）
+        const changedPaths = [...new Set([
+          ...[...prDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1]),
+          ...blockingComments.map(c => c.path).filter(Boolean),
+        ])];
         const currentFiles: { [path: string]: string } = changedPaths.length > 0
           ? await this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, changedPaths)
           : {};
@@ -722,14 +725,29 @@ export class Orchestrator {
           currentFiles
         );
 
-        // Commit fixes
-        const fixCommitted = await githubAgent.commitFiles(
-          state.githubOwner,
-          state.githubRepo,
-          task.branchName,
+        // 見せていない既存ファイルへの書き込みは、内容を消す事故になるため除外して可視化する
+        const { kept: fixFiles, blocked: blockedFixFiles } = await guardUnshownOverwrites(
           fixOutput.files,
-          fixOutput.commitMessage
+          Object.keys(currentFiles),
+          (p) => githubAgent.pathExistsInWorktree(state.githubOwner, state.githubRepo, task.branchName, p)
         );
+        if (blockedFixFiles.length > 0) {
+          logger.warn(
+            'FixAgent tried to overwrite existing files it was not shown; ignoring those changes',
+            blockedFixFiles.join(', ')
+          );
+        }
+
+        // Commit fixes
+        const fixCommitted = fixFiles.length === 0
+          ? false
+          : await githubAgent.commitFiles(
+              state.githubOwner,
+              state.githubRepo,
+              task.branchName,
+              fixFiles,
+              fixOutput.commitMessage
+            );
         if (!fixCommitted) {
           logger.warn('FixAgent produced no file changes', task.title);
         } else {
@@ -1509,7 +1527,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           comments.push({
             path: 'package.json',
             line: 1,
-            body: `**test script が全テストを実行していません**\n\n\`scripts.test\` (\`${testScript}\`) は次のテストファイルを実行しないため、\`npm test\` が通っても、それらの健全性が保証されません。\`scripts.test\` を、すべてのテストを実行するよう直してください（例: \`node --test\` にファイル引数を付けない、またはすべて列挙する）。\n\n${unexecuted.map((f) => `- ${f}`).join('\n')}`,
+            body: `**test script が全テストを実行していません**\n\n\`scripts.test\` (\`${testScript}\`) は次のテストファイルを実行しないため、\`npm test\` が通っても、それらの健全性が保証されません。\`scripts.test\` を、すべてのテストを実行するよう直してください（例: \`node --test\` にファイル引数を付けない、またはすべて列挙する）。\n\n**以下のファイルはすでにリポジトリに存在します。作り直さず、内容も変更せず、\`package.json\` の \`scripts.test\` だけを直してください。**\n\n${unexecuted.map((f) => `- ${f}`).join('\n')}`,
             severity: 'blocking',
           });
         } else {
