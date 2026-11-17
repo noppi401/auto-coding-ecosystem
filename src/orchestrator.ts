@@ -1701,8 +1701,8 @@ ${repositoryContext || '(repository context was not loaded)'}
     const lines = diff.split('\n');
     let currentFile = '';
     const reportedSkip = new Set<string>();
-    const reportedRemovedTestCase = new Set<string>();
-    const reportedRemovedExpectation = new Set<string>();
+    const netRemovedTestCases = new Map<string, number>();
+    const netRemovedExpectations = new Map<string, number>();
     const reportedWeakenedAssertion = new Set<string>();
 
     for (const line of lines) {
@@ -1742,38 +1742,20 @@ ${repositoryContext || '(repository context was not loaded)'}
         });
       }
 
-      if (
-        currentFile &&
-        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
-        line.startsWith('-') &&
-        !line.startsWith('---') &&
-        /\b(?:it|test)\s*\(/.test(line) &&
-        !reportedRemovedTestCase.has(currentFile)
-      ) {
-        reportedRemovedTestCase.add(currentFile);
-        comments.push({
-          path: currentFile,
-          line: 1,
-          body: `**テストケース削除禁止**\n\n\`${currentFile}\` で \`it(...)\` または \`test(...)\` の削除が検出されました。テスト数を減らしてビルドを通過させることは禁止されています。`,
-          severity: 'blocking',
-        });
-      }
-
-      if (
-        currentFile &&
-        /\.(test|spec)\.[jt]sx?$/.test(currentFile) &&
-        line.startsWith('-') &&
-        !line.startsWith('---') &&
-        /\bexpect\s*\(/.test(line) &&
-        !reportedRemovedExpectation.has(currentFile)
-      ) {
-        reportedRemovedExpectation.add(currentFile);
-        comments.push({
-          path: currentFile,
-          line: 1,
-          body: `**アサーション削除禁止**\n\n\`${currentFile}\` で \`expect(...)\` の削除が検出されました。アサーションを削除してビルドを通過させることは禁止されています。`,
-          severity: 'blocking',
-        });
+      // テストケース・アサーションは、ファイル単位で「消えた数 − 増えた数」を数え、純減だけを止める。
+      // 同じテストファイルを複数タスクで育てる場合、古い挙動のテストの書き換えや残骸行の削除は正当なため。
+      if (currentFile && /\.(test|spec)\.[jt]sx?$/.test(currentFile)) {
+        const sign = line.startsWith('-') && !line.startsWith('---') ? 1
+          : line.startsWith('+') && !line.startsWith('+++') ? -1
+          : 0;
+        if (sign !== 0) {
+          if (/\b(?:it|test)\s*\(/.test(line)) {
+            netRemovedTestCases.set(currentFile, (netRemovedTestCases.get(currentFile) ?? 0) + sign);
+          }
+          if (/\bexpect\s*\(/.test(line)) {
+            netRemovedExpectations.set(currentFile, (netRemovedExpectations.get(currentFile) ?? 0) + sign);
+          }
+        }
       }
 
       if (
@@ -1792,6 +1774,25 @@ ${repositoryContext || '(repository context was not loaded)'}
           severity: 'blocking',
         });
       }
+    }
+
+    for (const [file, net] of netRemovedTestCases) {
+      if (net <= 0) continue;
+      comments.push({
+        path: file,
+        line: 1,
+        body: `**テストケース削除禁止**\n\n\`${file}\` で \`it(...)\` / \`test(...)\` が差し引き ${net} 件減っています。テスト数を減らしてビルドを通過させることは禁止されています。古い挙動のテストは、削除ではなく新しい挙動のテストに書き換えてください。`,
+        severity: 'blocking',
+      });
+    }
+    for (const [file, net] of netRemovedExpectations) {
+      if (net <= 0) continue;
+      comments.push({
+        path: file,
+        line: 1,
+        body: `**アサーション削除禁止**\n\n\`${file}\` で \`expect(...)\` が差し引き ${net} 件減っています。アサーションを削除してビルドを通過させることは禁止されています。`,
+        severity: 'blocking',
+      });
     }
 
     return comments;

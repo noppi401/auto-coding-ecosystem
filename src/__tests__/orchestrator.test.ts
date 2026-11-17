@@ -584,9 +584,64 @@ describe('Orchestrator', () => {
 
       expect(comments.map((comment: any) => comment.body).join('\n')).toContain('テスト無効化禁止');
       expect(comments.map((comment: any) => comment.body).join('\n')).toContain('テストケース削除禁止');
-      expect(comments.map((comment: any) => comment.body).join('\n')).toContain('アサーション削除禁止');
+      // expect は 1 件消えて 1 件増えた（純減なし）ため削除ではなく、弱いアサーションへの置き換えとして検出される
       expect(comments.map((comment: any) => comment.body).join('\n')).toContain('アサーション弱体化禁止');
       expect(comments.every((comment: any) => comment.severity === 'blocking')).toBe(true);
+    });
+
+    describe('テストケース・アサーションの削除は、ファイル単位の純減だけを止める', () => {
+      const detect = (fileLines: string[]) => {
+        const orchestrator = new Orchestrator(statePath) as any;
+        const diff = ['diff --git a/test/api.test.js b/test/api.test.js', '@@', ...fileLines].join('\n');
+        return orchestrator._detectTestDeletion(diff).map((c: any) => c.body).join('\n');
+      };
+
+      it('古い挙動のテストを新しい挙動に書き換える（同数の置き換え）は通す', () => {
+        const bodies = detect([
+          "-  it('GET /api/todos は 501 を返す', async () => {",
+          "-    expect(res.status).toBe(501);",
+          "+  it('GET /api/todos は 200 を返す', async () => {",
+          "+    expect(res.status).toBe(200);",
+        ]);
+        expect(bodies).toBe('');
+      });
+
+      it('壊れた残骸の it( を消しつつテストを追加した場合（純増）は通す', () => {
+        const bodies = detect([
+          "-    it('GET /api/todos はハンドラーにルーティングされる（現在 501）', async () => {",
+          "+    it('GET /api/todos は 200 OK を返す', async () => {",
+          "+  it('空リストなら空配列を返す', async () => {",
+        ]);
+        expect(bodies).toBe('');
+      });
+
+      it('テストケースが純減した場合（26 件 → 23 件相当）は blocking にする', () => {
+        const bodies = detect([
+          "-  it('a', () => {",
+          "-  it('b', () => {",
+          "-  test('c', () => {",
+          "+  it('a2', () => {",
+        ]);
+        expect(bodies).toContain('テストケース削除禁止');
+        expect(bodies).toContain('2 件');
+      });
+
+      it('アサーションが純減した場合は blocking にする', () => {
+        const bodies = detect(['-    expect(a).toBe(1);', '-    expect(b).toBe(2);', '+    expect(a).toBe(1);']);
+        expect(bodies).toContain('アサーション削除禁止');
+      });
+
+      it('純減の判定はファイルごとに行う（別ファイルの追加で相殺しない）', () => {
+        const orchestrator = new Orchestrator(statePath) as any;
+        const diff = [
+          'diff --git a/test/a.test.js b/test/a.test.js',
+          "-  it('x', () => {",
+          'diff --git a/test/b.test.js b/test/b.test.js',
+          "+  it('y', () => {",
+        ].join('\n');
+        const comments = orchestrator._detectTestDeletion(diff);
+        expect(comments.map((c: any) => c.path)).toEqual(['test/a.test.js']);
+      });
     });
 
     describe('テスト無効化の判定は、テストランナーの skip/todo 呼び出しに限る', () => {
