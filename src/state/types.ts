@@ -29,7 +29,8 @@ export type TaskCheckName =
   | 'test'
   | 'coverage'
   | 'test-regression'
-  | 'test-coverage-of-script';
+  | 'test-coverage-of-script'
+  | 'smoke';
 
 export type TaskCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
 
@@ -64,6 +65,8 @@ export interface Task {
   testFiles?: string[];
   /** Planning が見積もる実装の複雑度。per-task モデルルーティングに使う。 */
   complexity?: TaskComplexity;
+  /** 'acceptance' は分解後に自動追加される受け入れ確認タスク（受け入れテスト生成と起動確認を行う）。 */
+  kind?: 'acceptance';
   status: TaskStatus;
   issueNumber?: number;
   issueUrl?: string;

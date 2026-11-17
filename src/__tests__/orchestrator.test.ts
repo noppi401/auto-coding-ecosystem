@@ -162,6 +162,7 @@ const mockGitHubAgent = {
   closeIssue: vi.fn().mockResolvedValue(undefined),
   pathExistsInWorktree: vi.fn().mockResolvedValue(true),
   runCommandInWorktree: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false }),
+  runSmokeCheckInWorktree: vi.fn().mockResolvedValue({ status: 'passed', summary: 'ok' }),
   getRepositoryContext: vi.fn().mockResolvedValue(''),
   createIssue: vi.fn().mockResolvedValue({ issueNumber: 10, issueUrl: 'https://github.com/owner/repo/issues/10' }),
   syncContextWorktree: vi.fn().mockResolvedValue({ path: '/tmp', branch: 'main', commit: 'abc' }),
@@ -499,6 +500,50 @@ describe('Orchestrator', () => {
         ['ci'],
         180000
       );
+    });
+
+    describe('起動確認ゲート（受け入れタスクのみ）', () => {
+      const runGate = async (kind: 'acceptance' | undefined, smoke: { status: string; summary: string; details?: string }) => {
+        process.env.BUILD_CHECK_ENABLED = 'true';
+        const { orchestrator, state, task } = await prepareTaskState();
+        task.kind = kind;
+        mockGitHubAgent.readFiles
+          .mockResolvedValueOnce({})
+          .mockResolvedValueOnce({ 'package.json': JSON.stringify({ scripts: { test: 'node --test', start: 'node server.js' } }) });
+        mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(true);
+        mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
+        mockGitHubAgent.runSmokeCheckInWorktree.mockClear();
+        mockGitHubAgent.runSmokeCheckInWorktree.mockResolvedValue(smoke);
+        const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+        const { StateManager } = await import('../state/manager.js');
+        const saved = await new StateManager(statePath).load();
+        return { comments, check: saved?.tasks[0].lastChecks?.find((c) => c.name === 'smoke') };
+      };
+
+      it('受け入れタスクで起動確認が失敗したら、エントリファイルを対象に blocking にする', async () => {
+        const { comments, check } = await runGate('acceptance', {
+          status: 'failed',
+          summary: '起動確認失敗: GET / が 403 を返した',
+          details: 'Forbidden',
+        });
+        const blocking = comments.filter((c: any) => c.severity === 'blocking');
+        expect(blocking).toHaveLength(1);
+        expect(blocking[0].path).toBe('server.js');
+        expect(blocking[0].body).toContain('403');
+        expect(check?.status).toBe('failed');
+      });
+
+      it('受け入れタスクで起動確認が通れば指摘しない', async () => {
+        const { comments, check } = await runGate('acceptance', { status: 'passed', summary: 'GET / -> 200' });
+        expect(comments.filter((c: any) => c.severity === 'blocking')).toHaveLength(0);
+        expect(check?.status).toBe('passed');
+      });
+
+      it('通常のタスクでは起動確認を実行しない', async () => {
+        const { check } = await runGate(undefined, { status: 'failed', summary: 'x' });
+        expect(mockGitHubAgent.runSmokeCheckInWorktree).not.toHaveBeenCalled();
+        expect(check).toBeUndefined();
+      });
     });
 
     describe('test script が一部のテストしか実行しない場合を検知する', () => {

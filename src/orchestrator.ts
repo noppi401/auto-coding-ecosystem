@@ -24,6 +24,7 @@ import { fetchPrDiffAfterFix } from './utils/refetch-diff.js';
 import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
 import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
 import { modifiedFilesInDiff } from './utils/modified-files.js';
+import { entryFileFromStartScript } from './utils/smoke-check.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -1561,6 +1562,42 @@ ${repositoryContext || '(repository context was not loaded)'}
         status: 'skipped',
         summary: 'package.json がないため npm test を未実行',
       });
+    }
+
+    // 起動確認（受け入れタスクのみ）: テストとは独立に、実際に起動して GET / が応答するかを確かめる。
+    // 各タスクでは行わない（初期のタスクでは / がまだ無く、誤ってブロックするため）。
+    if (task.kind === 'acceptance') {
+      let startScript: string | undefined;
+      try { startScript = JSON.parse(pkgFiles['package.json'] ?? '{}')?.scripts?.start; } catch { startScript = undefined; }
+      if (!startScript) {
+        await this._recordTaskCheck(task, {
+          name: 'smoke',
+          status: 'skipped',
+          summary: 'package.json に start script がないため起動確認を未実行',
+        });
+      } else {
+        logger.info('Running smoke check (npm start + GET /)...');
+        const smoke = await githubAgent.runSmokeCheckInWorktree(state.githubOwner, state.githubRepo, task.branchName);
+        await this._recordTaskCheck(task, {
+          name: 'smoke',
+          status: smoke.status,
+          summary: smoke.summary,
+          command: commandLine('npm', ['start']),
+          severity: smoke.status === 'failed' ? 'blocking' : undefined,
+          details: smoke.details ? summarizeOutput(smoke.details, 1500) : undefined,
+        });
+        if (smoke.status === 'failed') {
+          logger.warn('Smoke check failed', smoke.summary);
+          comments.push({
+            path: entryFileFromStartScript(startScript) ?? 'package.json',
+            line: 1,
+            body: `**起動確認失敗**\n\n${smoke.summary}\n\nアプリを \`npm start\`（環境変数 PORT で待ち受け）で起動し、\`GET /\` が 2xx/3xx を返すように実装を直してください。\n\n\`\`\`\n${(smoke.details ?? '').slice(0, 2000)}\n\`\`\``,
+            severity: 'blocking',
+          });
+        } else {
+          logger.info('Smoke check', smoke.summary);
+        }
+      }
     }
 
     // Coverage check (opt-in via COVERAGE_CHECK_ENABLED=true)

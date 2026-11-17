@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'path';
 import { homedir } from 'os';
 import { ReviewComment, SourceIssue } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { runSmokeCheck, SmokeCheckResult } from '../utils/smoke-check.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -425,6 +426,16 @@ export class GitHubAgent {
   async pathExistsInWorktree(owner: string, repo: string, branch: string, relativePath: string): Promise<boolean> {
     const worktree = this.getWorktreePath(owner, repo, branch);
     return this.pathExists(join(worktree, relativePath));
+  }
+
+  /** worktree で `npm start` を起動し、GET / が応答するかを確かめる（起動確認ゲート）。 */
+  async runSmokeCheckInWorktree(owner: string, repo: string, branch: string): Promise<SmokeCheckResult> {
+    const worktree = this.getWorktreePath(owner, repo, branch);
+    if (!(await this.pathExists(worktree))) {
+      return { status: 'failed', summary: `Worktree not found: ${worktree}` };
+    }
+    const resolved = this.resolvePlatformCommand('npm', ['start']);
+    return runSmokeCheck({ cwd: worktree, command: resolved.command, args: resolved.args });
   }
 
   private resolvePlatformCommand(command: string, args: string[]): { command: string; args: string[] } {
