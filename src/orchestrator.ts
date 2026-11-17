@@ -421,15 +421,14 @@ export class Orchestrator {
       state.githubRepo,
       task.branchName
     );
-    const currentTargetFiles =
-      state.projectMode === 'modify'
-        ? await githubAgent.readFiles(
-            state.githubOwner,
-            state.githubRepo,
-            task.branchName,
-            task.targetFiles
-          )
-        : {};
+    // 新規プロジェクトでも、前のタスクが作った同名ファイルがあり得る。存在するものは必ず読み込んで渡す
+    // （見せないと全文を書き直して既存の実装・テストを消す）。存在しないパスは readFiles が無視する。
+    const currentTargetFiles = await githubAgent.readFiles(
+      state.githubOwner,
+      state.githubRepo,
+      task.branchName,
+      [...new Set([...task.targetFiles, ...(task.testFiles ?? [])])]
+    );
 
     // Generate code
     logger.info(
@@ -443,7 +442,8 @@ export class Orchestrator {
       task,
       requirementsDoc,
       designDoc,
-      currentTargetFiles
+      currentTargetFiles,
+      describeOtherTasks(state.tasks, task)
     );
 
     let currentState = await this.stateManager.load();

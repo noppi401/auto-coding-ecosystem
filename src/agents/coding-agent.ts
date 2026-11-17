@@ -19,13 +19,16 @@ export class CodingAgent extends BaseAgent {
     task: Task,
     requirementsDoc: string,
     designDoc: string,
-    currentFiles: Record<string, string> = {}
+    currentFiles: Record<string, string> = {},
+    otherTasksContext = ''
   ): Promise<CodeOutput> {
     await this.loadSystemPrompt();
 
     logger.section(`CodingAgent: Generating code for "${task.title}"`);
 
-    const currentFileMax = Number(process.env.CODING_CURRENT_FILE_MAX_CHARS || '6000');
+    // ファイルは全文を出力させる形式のため、既存ファイルを切り詰めて渡すと、欠けた部分のコードが消える。
+    // 上限は暴走防止のためだけに置き、通常のファイルは全文を渡す。
+    const currentFileMax = Number(process.env.CODING_CURRENT_FILE_MAX_CHARS || '60000');
     const truncatedCurrentFiles: Record<string, string> = {};
     for (const [path, content] of Object.entries(currentFiles)) {
       truncatedCurrentFiles[path] = content.substring(0, currentFileMax);
@@ -36,9 +39,9 @@ export class CodingAgent extends BaseAgent {
 
     if (targetFiles.length <= chunkSize) {
       let output = await this._generateChunk(
-        task, requirementsDoc, designDoc, truncatedCurrentFiles, targetFiles, null
+        task, requirementsDoc, designDoc, truncatedCurrentFiles, targetFiles, null, otherTasksContext
       );
-      output = await this._ensureTestFiles(task, requirementsDoc, designDoc, output, currentFileMax);
+      output = await this._ensureTestFiles(task, requirementsDoc, designDoc, output, currentFileMax, truncatedCurrentFiles, otherTasksContext);
       logger.info('CodingAgent completed', { fileCount: output.files.length });
       return output;
     }
@@ -66,7 +69,8 @@ export class CodingAgent extends BaseAgent {
       }
       const chunkOutput = await this._generateChunk(
         task, requirementsDoc, designDoc, chunkCurrentFiles, chunk,
-        { current: index + 1, total: chunks.length }
+        { current: index + 1, total: chunks.length },
+        otherTasksContext
       );
       allFiles.push(...chunkOutput.files);
       if (!firstOutput) firstOutput = chunkOutput;
@@ -78,7 +82,7 @@ export class CodingAgent extends BaseAgent {
       prTitle: firstOutput!.prTitle,
       prBody: firstOutput!.prBody,
     };
-    mergedOutput = await this._ensureTestFiles(task, requirementsDoc, designDoc, mergedOutput, currentFileMax);
+    mergedOutput = await this._ensureTestFiles(task, requirementsDoc, designDoc, mergedOutput, currentFileMax, truncatedCurrentFiles, otherTasksContext);
     logger.info('CodingAgent completed (chunked)', { fileCount: mergedOutput.files.length });
     return mergedOutput;
   }
@@ -88,7 +92,9 @@ export class CodingAgent extends BaseAgent {
     requirementsDoc: string,
     designDoc: string,
     output: CodeOutput,
-    currentFileMax: number
+    currentFileMax: number,
+    existingFiles: Record<string, string> = {},
+    otherTasksContext = ''
   ): Promise<CodeOutput> {
     const TEST_FILE_PATTERN = /\.(test|spec)\.[jt]sx?$/i;
     const hasTestFiles = output.files.some(f => TEST_FILE_PATTERN.test(f.path));
@@ -107,6 +113,10 @@ export class CodingAgent extends BaseAgent {
     logger.warn('CodingAgent: no test files in output; generating test-only chunk', expectedTestFiles.join(', '));
 
     const implFilesAsContext: Record<string, string> = {};
+    // 既存のテストファイルは、書き直しで既存テストを消さないよう内容を渡す
+    for (const p of expectedTestFiles) {
+      if (existingFiles[p]) implFilesAsContext[p] = existingFiles[p];
+    }
     for (const f of output.files) {
       implFilesAsContext[f.path] = f.content.substring(0, currentFileMax);
     }
@@ -117,7 +127,8 @@ export class CodingAgent extends BaseAgent {
       designDoc,
       implFilesAsContext,
       expectedTestFiles,
-      null
+      null,
+      otherTasksContext
     );
 
     return { ...output, files: [...output.files, ...testOutput.files] };
@@ -129,7 +140,8 @@ export class CodingAgent extends BaseAgent {
     designDoc: string,
     currentFiles: Record<string, string>,
     targetFiles: string[],
-    chunkInfo: { current: number; total: number } | null
+    chunkInfo: { current: number; total: number } | null,
+    otherTasksContext = ''
   ): Promise<CodeOutput> {
     const chunkNote = chunkInfo
       ? `NOTE: This is chunk ${chunkInfo.current} of ${chunkInfo.total} for this task. Generate ONLY the files listed in TARGET FILES below.\n\n`
@@ -146,7 +158,12 @@ ${requirementsDoc.substring(0, 6000)}
 DESIGN (excerpt):
 ${designDoc.substring(0, 4000)}
 
-${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES:
+${otherTasksContext ? `OTHER PLANNED TASKS (implemented separately later; do NOT implement their behavior here):
+${otherTasksContext}
+
+Implement ONLY this task's scope; leave anything listed above to its own task.
+
+` : ''}${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES (these files already exist; keep ALL existing code and tests, change only what this task requires, and return each file in full):
 ${Object.entries(currentFiles)
   .map(([path, content]) => `--- FILE: ${path} ---\n${content}`)
   .join('\n\n')}

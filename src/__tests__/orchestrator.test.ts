@@ -376,6 +376,27 @@ describe('Orchestrator', () => {
       expect(mockCodingAgent.generateCode).toHaveBeenCalled();
     });
 
+    it('新規プロジェクトでも、対象・テストファイルの既存内容と他タスクの計画を CodingAgent に渡す', async () => {
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo'); // projectMode は modify ではない
+      await sm.setTasks([
+        makeTask({ id: 't-a', title: 'Server', targetFiles: ['server.js'], testFiles: ['server.test.js'] }),
+        makeTask({ id: 't-b', title: 'GET endpoint', targetFiles: ['server.js'], testFiles: ['server.test.js'] }),
+      ]);
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        Object.fromEntries(paths.filter((p) => p === 'server.js' || p === 'server.test.js').map((p) => [p, `existing ${p}`]))
+      );
+
+      const orchestrator = new Orchestrator(statePath);
+      await orchestrator.runPhase2();
+
+      const [, , , currentFiles, otherTasks] = mockCodingAgent.generateCode.mock.calls[0];
+      expect(currentFiles).toEqual({ 'server.js': 'existing server.js', 'server.test.js': 'existing server.test.js' });
+      expect(otherTasks).toContain('GET endpoint');
+      expect(otherTasks).not.toContain('- Server:');
+    });
+
     it('skipped タスクは処理せず completed にしない', async () => {
       const { StateManager } = await import('../state/manager.js');
       const sm = new StateManager(statePath);
