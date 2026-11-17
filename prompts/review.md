@@ -47,6 +47,17 @@ You are an expert code reviewer. Your task is to thoroughly review code and iden
 - Are dependencies appropriate?
 - Is error handling consistent?
 
+### 7. Minimal Change (lens adapted from Ponytail, MIT — https://github.com/DietrichGebert/ponytail)
+Ask whether the change is the smallest one that FULLY solves the task. Report findings only as **suggestion**; never use these as grounds for `blocking`.
+- Unrequested extras: features, options, config, or abstractions that the task did not ask for (name them).
+- Reinvention: code that duplicates a helper already in the repository, the standard library, or an installed dependency.
+- Needless layers: wrappers, type conversions, or "for later" code with a single use.
+- Untested risky logic: new non-trivial logic (branch, loop, parser, money/security) with no test at all. One small test is enough.
+- Scope gaps: callers, tests, fixtures, config, or exports that the change must reach but does not. (If the gap is a missing stated deliverable, the existing "Incomplete task deliverable" blocking rule applies instead.)
+
+Never suggest cutting: validation at trust boundaries, error handling that prevents data loss, security, accessibility, or anything the task explicitly requires.
+When a finding is useful, write it as: what the code does → what goes wrong or what is unnecessary → the smaller or safer fix.
+
 ## Output Format
 
 You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
