@@ -309,7 +309,15 @@ export class BaseAgent {
       // Pass prompt via stdin to avoid Windows path/quoting issues with @file syntax.
       // --dangerously-skip-permissions prevents interactive permission prompts that would hang the process.
       // stream-json は起動直後に init イベントを出すので、無反応のハングを早期に検知できる。
-      args.push('-p', '--model', model, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions');
+      // パイプラインは「テキスト（JSON）を返すこと」だけを期待する。ツールを許すと、モデルが
+      // 作業ディレクトリへ直接ファイルを書く・サーバーを常駐させて終了しない・外部サービスを操作する等が起き得るため、
+      // ビルトインツールと MCP ツールをすべて無効にする（`--tools=` は空文字引数が落ちる経路でも安全な形）。
+      args.push(
+        '-p', '--model', model,
+        '--output-format', 'stream-json', '--verbose',
+        '--tools=', '--strict-mcp-config',
+        '--dangerously-skip-permissions'
+      );
 
       const firstOutputTimeoutMs = Number(process.env.CLAUDE_STARTUP_TIMEOUT_MS || '120000');
       const maxStartupRetries = Number(process.env.CLAUDE_STARTUP_RETRIES || '2');

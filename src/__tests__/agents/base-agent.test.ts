@@ -128,6 +128,17 @@ describe('BaseAgent', () => {
 
       await expect(agent.invoke('test message')).rejects.toThrow('Claude error');
     });
+
+    it('claude はツールを一切使えない状態で起動する（ファイル書き込み・外部サービス操作を防ぐ）', async () => {
+      const agent = new BaseAgent('', 'CodingAgent');
+      const exec = vi.spyOn(agent as any, '_execCommand').mockResolvedValue(CLAUDE_SUCCESS);
+
+      await agent.invoke('test message');
+
+      const args = exec.mock.calls[0][1] as string[];
+      expect(args).toContain('--tools='); // ビルトインツール全無効
+      expect(args).toContain('--strict-mcp-config'); // MCP（外部サービス）ツールも除外
+    });
   });
 
   describe('invoke() - フォールバック（使用量上限エラー）', () => {
