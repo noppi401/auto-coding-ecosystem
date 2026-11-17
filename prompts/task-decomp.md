@@ -57,6 +57,8 @@ You MUST respond with a JSON array of tasks. NO additional text or explanation.
 - Branch names should be descriptive and follow pattern: `feat/task-NNN-description`
 - target_files should list only implementation files (created or modified)
 - test_files should list all test files that must be written for this task — ALWAYS include at least one test file per task
+- Each task owns its OWN new, small test file named after the feature it tests (e.g. `test/post-todos.test.js`). Never list a test file that another task also lists, and never plan to append to one shared test file
+- Keep each test file focused (roughly 300 lines or less); put shared test setup (e.g. starting the server) in a helper module, not in a test file
 - For existing repository modifications, prefer target_files that already exist when appropriate
 - Avoid broad rewrites; split changes by existing module boundaries
 - complexity: "small" (< 1h), "medium" (1-4h), "large" (4-8h)

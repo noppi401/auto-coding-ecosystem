@@ -3,6 +3,7 @@ import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 import { normalizeComplexity } from '../utils/model-routing.js';
 import { randomUUID } from 'crypto';
+import { assignUniqueTestFiles } from '../utils/unique-test-files.js';
 
 export class TaskDecompAgent extends BaseAgent {
   constructor() {
@@ -45,7 +46,10 @@ Respond with JSON array of tasks with this structure:
   }
 ]
 
-IMPORTANT: Every task MUST include at least one entry in "testFiles". List only test files separately from implementation files in "targetFiles".`;
+IMPORTANT: Every task MUST include at least one entry in "testFiles". List only test files separately from implementation files in "targetFiles".
+TEST FILES: give each task its OWN new, small test file named after the feature it tests (e.g. "test/post-todos.test.js").
+Never list a test file that another task also lists, and never plan to append to one shared test file.
+Keep each test file focused (roughly 300 lines or less). Put shared test setup (e.g. starting the server) in a helper module, not in a test file.`;
 
     const result = await this.invoke(prompt, 8000);
     const tasks = this.parseTasksFromResponse(result);
@@ -66,7 +70,7 @@ IMPORTANT: Every task MUST include at least one entry in "testFiles". List only 
       const parsed = JSON.parse(cleanedResponse);
       const tasksArray = Array.isArray(parsed) ? parsed : parsed.tasks;
 
-      return tasksArray.map(
+      const mapped: Task[] = tasksArray.map(
         (t: any) => ({
           id: randomUUID(),
           title: t.title,
@@ -84,6 +88,13 @@ IMPORTANT: Every task MUST include at least one entry in "testFiles". List only 
           updatedAt: new Date().toISOString(),
         })
       );
+
+      // 1 本のテストファイルを全タスクで共有すると肥大化して生成・編集が壊れるため、タスクごとの専用ファイルにする
+      const { tasks, reassigned } = assignUniqueTestFiles(mapped);
+      for (const r of reassigned) {
+        logger.warn('Test file shared by multiple tasks; assigned a dedicated test file', `${r.branchName}: ${r.from} -> ${r.to}`);
+      }
+      return tasks;
     } catch (err) {
       logger.error('Failed to parse tasks', err);
       throw err;
