@@ -330,7 +330,18 @@ export class BaseAgent {
           });
           break;
         } catch (err) {
-          if (!(err instanceof StartupStallError) || attempt >= maxStartupRetries) throw err;
+          if (!(err instanceof StartupStallError)) {
+            // 異常終了でも claude は is_error の result を stdout に出す。ストリーム全体をエラーにすると
+            // ID や数値の部分一致（"429" 等）で使用量上限と誤判定するため、result 本文だけにする
+            const failedStdout = (err as { stdout?: string })?.stdout;
+            if (failedStdout) {
+              let detail: string | undefined;
+              try { detail = parseClaudeStdout(failedStdout).result; } catch { /* result なし → 元のエラー */ }
+              if (detail !== undefined) throw new Error(`Claude error: ${detail}`);
+            }
+            throw err;
+          }
+          if (attempt >= maxStartupRetries) throw err;
           logger.warn(`${this.agentName} claude produced no output at startup; retrying`, {
             attempt: attempt + 1,
             of: maxStartupRetries,
@@ -515,7 +526,7 @@ export class BaseAgent {
         if (code === 0) {
           resolve(stdout);
         } else {
-          reject(new Error(`Command failed with code ${code}: ${stderr || stdout}`));
+          reject(Object.assign(new Error(`Command failed with code ${code}: ${stderr || stdout}`), { stdout, stderr }));
         }
       };
       // 孫プロセスが pipe を握り続けると 'close' が来ない。完了後・終了後は猶予を置いて pipe を破棄し、待ち続けない

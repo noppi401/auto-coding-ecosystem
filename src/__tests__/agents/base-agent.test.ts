@@ -129,6 +129,27 @@ describe('BaseAgent', () => {
       await expect(agent.invoke('test message')).rejects.toThrow('Claude error');
     });
 
+    it('claude が is_error の result を出して異常終了したとき、ストリーム全体ではなく result 本文だけをエラーにする（数値の部分一致で上限誤判定しない）', async () => {
+      process.env.FALLBACK_LLM_PROVIDER = 'codex';
+      const agent = new BaseAgent('', 'CodingAgent');
+      // 実際に起きた形: ID や数値（429 等）を含む長いストリームがエラーメッセージに入る
+      const stream = [
+        JSON.stringify({ type: 'system', subtype: 'init', uuid: 'a429b' }),
+        JSON.stringify({
+          type: 'result',
+          is_error: true,
+          result: "API Error: Claude's response exceeded the 32000 output token maximum.",
+          session_id: 's429',
+        }),
+      ].join('\n');
+      const err: any = new Error(`Command failed with code 1: ${stream}`);
+      err.stdout = stream;
+      const exec = vi.spyOn(agent as any, '_execCommand').mockRejectedValue(err);
+
+      await expect(agent.invoke('test message')).rejects.toThrow(/Claude error: API Error.*output token maximum/);
+      expect(exec).toHaveBeenCalledTimes(1); // codex へフォールバックしない
+    });
+
     it('claude はツールを一切使えない状態で起動する（ファイル書き込み・外部サービス操作を防ぐ）', async () => {
       const agent = new BaseAgent('', 'CodingAgent');
       const exec = vi.spyOn(agent as any, '_execCommand').mockResolvedValue(CLAUDE_SUCCESS);
