@@ -70,6 +70,50 @@ describe('BaseAgent._execCommand: 起動後の無反応（ハング）検知', (
     expect(stdout).toContain('done');
   });
 
+  // 孫プロセスが stdout を握ったままだと 'close' が来ず、完了済みでもタイムアウトまで待ち続けていた
+  const holdPipeScript = (emitResult: boolean, parentExits: boolean) => `
+    const { spawn } = require('child_process');
+    spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 60000)'], { stdio: ['ignore', 'inherit', 'inherit'] }).unref();
+    ${emitResult ? `console.log(JSON.stringify({ type: 'result', is_error: false, result: 'done', session_id: 's' }));` : `console.log('plain output');`}
+    ${parentExits ? '' : 'setTimeout(() => {}, 60000);'}
+  `;
+
+  it('result イベント後に子プロセスが終了せず pipe を握り続けても、猶予後に完了として返す', async () => {
+    const script = await makeScript(holdPipeScript(true, false)); // 親も生き続ける
+    const agent = new BaseAgent('', 'TestAgent');
+    const started = Date.now();
+
+    const stdout = await (agent as any)._execCommand('node', [script], undefined, {
+      finishOnResultEvent: true,
+      exitGraceMs: 300,
+    });
+
+    expect(stdout).toContain('"type":"result"');
+    expect(Date.now() - started).toBeLessThan(10000);
+  });
+
+  it('親プロセスが終了しても孫が pipe を握って close が来ない場合、猶予後に完了として返す', async () => {
+    const script = await makeScript(holdPipeScript(false, true));
+    const agent = new BaseAgent('', 'TestAgent');
+    const started = Date.now();
+
+    const stdout = await (agent as any)._execCommand('node', [script], undefined, { exitGraceMs: 300 });
+
+    expect(stdout).toContain('plain output');
+    expect(Date.now() - started).toBeLessThan(10000);
+  });
+
+  it('親が異常終了で pipe が残った場合は、完了扱いにせず失敗として返す', async () => {
+    const script = await makeScript(
+      holdPipeScript(false, true).replace(`console.log('plain output');`, `console.error('boom'); process.exitCode = 3;`)
+    );
+    const agent = new BaseAgent('', 'TestAgent');
+
+    await expect(
+      (agent as any)._execCommand('node', [script], undefined, { exitGraceMs: 300 })
+    ).rejects.toThrow(/code 3.*boom/s);
+  });
+
   it('全体タイムアウト時のエラーに、それまでの出力が診断情報として含まれる', async () => {
     const script = await makeScript(`console.log('partial-output'); setTimeout(() => {}, 60000);`);
     const agent = new BaseAgent('', 'TestAgent');

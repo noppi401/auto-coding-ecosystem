@@ -316,7 +316,10 @@ export class BaseAgent {
       let stdout = '';
       for (let attempt = 0; ; attempt++) {
         try {
-          stdout = await this._execCommand('claude', args, userMessage, { firstOutputTimeoutMs });
+          stdout = await this._execCommand('claude', args, userMessage, {
+            firstOutputTimeoutMs,
+            finishOnResultEvent: true,
+          });
           break;
         } catch (err) {
           if (!(err instanceof StartupStallError) || attempt >= maxStartupRetries) throw err;
@@ -432,7 +435,7 @@ export class BaseAgent {
     command: string,
     args: string[],
     stdin?: string,
-    opts: { firstOutputTimeoutMs?: number } = {}
+    opts: { firstOutputTimeoutMs?: number; finishOnResultEvent?: boolean; exitGraceMs?: number } = {}
   ): Promise<string> {
     const claudeBin = command === 'claude' ? await resolveClaudeBin() : null;
     return new Promise((resolve, reject) => {
@@ -493,19 +496,59 @@ export class BaseAgent {
         }, ms);
       }
 
-      child.on('close', (code) => {
+      let settled = false;
+      let graceTimer: NodeJS.Timeout | undefined;
+      const finish = (code: number | null) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timeout);
         clearTimeout(startupTimer);
+        clearTimeout(graceTimer);
         if (code === 0) {
           resolve(stdout);
         } else {
           reject(new Error(`Command failed with code ${code}: ${stderr || stdout}`));
         }
+      };
+      // 孫プロセスが pipe を握り続けると 'close' が来ない。完了後・終了後は猶予を置いて pipe を破棄し、待ち続けない
+      const abandonPipes = () => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+      };
+      const graceMs = opts.exitGraceMs ?? 5000;
+
+      if (opts.finishOnResultEvent) {
+        let lineBuf = '';
+        child.stdout?.on('data', (data) => {
+          lineBuf += data.toString();
+          const lines = lineBuf.split('\n');
+          lineBuf = lines.pop() ?? '';
+          if (!graceTimer && lines.some((l) => l.startsWith('{"type":"result"'))) {
+            // result を受け取った = 生成は完了済み。終了しないプロセス（常駐させた子プロセス等）は打ち切る
+            graceTimer = setTimeout(() => {
+              killProcessTree(child);
+              abandonPipes();
+              finish(0);
+            }, graceMs);
+          }
+        });
+      }
+
+      child.on('exit', (code) => {
+        if (settled) return;
+        graceTimer ??= setTimeout(() => {
+          abandonPipes();
+          finish(code);
+        }, graceMs);
       });
 
+      child.on('close', (code) => finish(code));
+
       child.on('error', (err) => {
+        settled = true;
         clearTimeout(timeout);
         clearTimeout(startupTimer);
+        clearTimeout(graceTimer);
         reject(err);
       });
     });
