@@ -16,8 +16,8 @@ export interface CodeOutput {
 }
 
 export class CodingAgent extends BaseAgent {
-  constructor() {
-    super('coding.md', 'CodingAgent');
+  constructor(promptFile = 'coding.md', agentName = 'CodingAgent') {
+    super(promptFile, agentName);
   }
 
   async generateCode(

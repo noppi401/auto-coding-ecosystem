@@ -580,7 +580,11 @@ export class BaseAgent {
     });
   }
 
+  /** true のエージェントは IMPLEMENTATION_AGENTS の設定に関わらず実装用モデルで動く（コードを書く新規エージェント用）。 */
+  protected alwaysImplementationRoute = false;
+
   private getAgentRoute(): AgentRoute {
+    if (this.alwaysImplementationRoute) return 'implementation';
     const implementationAgents = (
       process.env.IMPLEMENTATION_AGENTS ||
       process.env.LOCAL_IMPLEMENTATION_AGENTS ||

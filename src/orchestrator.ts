@@ -10,7 +10,9 @@ import { DesignAgent } from './agents/design-agent.js';
 import { DesignValidationAgent } from './agents/design-validation-agent.js';
 import { TaskDecompAgent } from './agents/task-decomp-agent.js';
 import { RepoContextSummaryAgent } from './agents/repo-context-summary-agent.js';
-import { CodingAgent } from './agents/coding-agent.js';
+import { CodingAgent, CodeOutput } from './agents/coding-agent.js';
+import { AcceptanceTestAgent } from './agents/acceptance-test-agent.js';
+import { buildAcceptanceTask } from './utils/acceptance-task.js';
 import { CodexAgent } from './agents/codex-agent.js';
 import { ReviewAgent } from './agents/review-agent.js';
 import { FixAgent } from './agents/fix-agent.js';
@@ -196,6 +198,10 @@ export class Orchestrator {
       requirementsDoc,
       designDoc
     );
+    // 最後に受け入れ確認タスクを追加する（要件から独立に書いた受け入れテスト + 起動確認で、要件を満たすかを確かめる）
+    if (process.env.ACCEPTANCE_TASK_ENABLED !== 'false') {
+      tasks.push(buildAcceptanceTask(tasks));
+    }
 
     // Issue #3: Issue 起票前にタスク一覧の承認を求める（コールバックがある場合のみ）
     if (options.confirmTasks) {
@@ -437,16 +443,30 @@ export class Orchestrator {
       'Generating code with implementation LLM...',
       process.env.IMPLEMENTATION_LLM_PROVIDER || 'claude'
     );
-    const codingAgent = new CodingAgent();
-    this._applyTaskModel(codingAgent, task);
-    const { requirementsDoc, designDoc } = this._buildImplementationDocs(task, state);
-    const codeOutput = await codingAgent.generateCode(
-      task,
-      requirementsDoc,
-      designDoc,
-      currentTargetFiles,
-      describeOtherTasks(state.tasks, task)
-    );
+    let codingAgent: CodingAgent;
+    let codeOutput: CodeOutput;
+    if (task.kind === 'acceptance') {
+      // 受け入れタスク: 実装を見ない別エージェントが、要件だけから受け入れテストを書く
+      const acceptanceAgent = new AcceptanceTestAgent();
+      codingAgent = acceptanceAgent;
+      const pkg = await githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, ['package.json']);
+      const ls = await githubAgent.runCommandInWorktree(
+        state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+      );
+      const trackedFiles = (ls?.stdout ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+      codeOutput = await acceptanceAgent.generateAcceptanceTests(task, state.requirementsDoc, pkg['package.json'], trackedFiles);
+    } else {
+      codingAgent = new CodingAgent();
+      this._applyTaskModel(codingAgent, task);
+      const { requirementsDoc, designDoc } = this._buildImplementationDocs(task, state);
+      codeOutput = await codingAgent.generateCode(
+        task,
+        requirementsDoc,
+        designDoc,
+        currentTargetFiles,
+        describeOtherTasks(state.tasks, task)
+      );
+    }
 
     let currentState = await this.stateManager.load();
     if (!currentState) throw new Error('Failed to load state');
@@ -714,9 +734,11 @@ export class Orchestrator {
 
         // Extract changed file paths from the diff so FixAgent has real file contents
         // 指摘が差分外のファイルを指す場合も、内容を渡す（見ていないファイルを新規扱いで上書きさせない）
+        // タスクの対象ファイルも渡す（受け入れタスクでは全実装ファイルが対象で、失敗の原因は差分の外の実装側にある）
         const changedPaths = [...new Set([
           ...[...prDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1]),
           ...blockingComments.map(c => c.path).filter(Boolean),
+          ...task.targetFiles,
         ])];
         const currentFiles: { [path: string]: string } = changedPaths.length > 0
           ? await this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, changedPaths)
@@ -733,7 +755,7 @@ export class Orchestrator {
         );
 
         // 見せていない既存ファイルへの書き込みは、内容を消す事故になるため除外して可視化する
-        const { kept: fixFiles, blocked: blockedFixFiles } = await guardUnshownOverwrites(
+        const { kept: shownFixFiles, blocked: blockedFixFiles } = await guardUnshownOverwrites(
           fixOutput.files,
           Object.keys(currentFiles),
           (p) => githubAgent.pathExistsInWorktree(state.githubOwner, state.githubRepo, task.branchName, p)
@@ -742,6 +764,15 @@ export class Orchestrator {
           logger.warn(
             'FixAgent tried to overwrite existing files it was not shown; ignoring those changes',
             blockedFixFiles.join(', ')
+          );
+        }
+        // 受け入れテストは要件から独立に書いた判定基準なので、FixAgent に書き換えさせない（期待値を変えて通すのを防ぐ）
+        const protectedTests = task.kind === 'acceptance' ? new Set(task.testFiles ?? []) : new Set<string>();
+        const fixFiles = shownFixFiles.filter((f) => !protectedTests.has(f.path.replace(/\\/g, '/').replace(/^\.\//, '')));
+        if (fixFiles.length < shownFixFiles.length) {
+          logger.warn(
+            'FixAgent tried to modify acceptance tests; ignoring those changes (fix the implementation instead)',
+            shownFixFiles.filter((f) => !fixFiles.includes(f)).map((f) => f.path).join(', ')
           );
         }
 

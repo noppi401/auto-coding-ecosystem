@@ -204,6 +204,15 @@ vi.mock('../agents/coding-agent.js', () => ({
   CodingAgent: vi.fn().mockImplementation(function() { return mockCodingAgent; }),
 }));
 
+const mockAcceptanceAgent = {
+  generateAcceptanceTests: vi.fn(),
+  getHistory: vi.fn().mockReturnValue(null),
+};
+
+vi.mock('../agents/acceptance-test-agent.js', () => ({
+  AcceptanceTestAgent: vi.fn().mockImplementation(function() { return mockAcceptanceAgent; }),
+}));
+
 vi.mock('../agents/review-agent.js', () => ({
   ReviewAgent: vi.fn().mockImplementation(function() { return mockReviewAgent; }),
 }));
@@ -237,6 +246,8 @@ describe('Orchestrator', () => {
   beforeEach(() => {
     statePath = join(tmpdir(), `ace-orchestrator-test-${randomUUID()}`, 'state.json');
     process.env.BUILD_CHECK_ENABLED = 'false';
+    // 受け入れタスクの自動追加は専用のテストで検証する（他のテストはタスク 1 件の流れを前提にする）
+    process.env.ACCEPTANCE_TASK_ENABLED = 'false';
     delete process.env.COVERAGE_CHECK_ENABLED;
     delete process.env.COVERAGE_CHECK_STRICT;
     vi.clearAllMocks();
@@ -248,6 +259,7 @@ describe('Orchestrator', () => {
       prBody: 'Implementation PR',
     });
     mockGitHubAgent.commitFiles.mockResolvedValue(true);
+    mockGitHubAgent.getPrDiff.mockResolvedValue('diff content');
     mockGitHubAgent.readFiles.mockResolvedValue({});
     mockGitHubAgent.pathExistsInWorktree.mockResolvedValue(true);
     mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0, timedOut: false });
@@ -396,6 +408,94 @@ describe('Orchestrator', () => {
       expect(currentFiles).toEqual({ 'server.js': 'existing server.js', 'server.test.js': 'existing server.test.js' });
       expect(otherTasks).toContain('GET endpoint');
       expect(otherTasks).not.toContain('- Server:');
+    });
+
+    describe('受け入れタスク', () => {
+      const acceptanceTask = () =>
+        makeTask({
+          id: 't-acc',
+          title: '受け入れテストと起動確認',
+          kind: 'acceptance',
+          branchName: 'feat/task-002-acceptance',
+          targetFiles: ['server.js', 'public/index.html'],
+          testFiles: ['test/acceptance.test.js'],
+        });
+
+      it('Phase 1 の分解結果の最後に受け入れタスクを追加し、Issue も起票する', async () => {
+        process.env.ACCEPTANCE_TASK_ENABLED = 'true';
+        mockTaskDecompAgent.decomposeTask.mockResolvedValueOnce([
+          makeTask({ title: 'Server', targetFiles: ['server.js'], testFiles: ['test/server.test.js'] }),
+        ]);
+
+        const orchestrator = new Orchestrator(statePath);
+        const state = await orchestrator.runPhase1('instruction', 'owner', 'repo');
+
+        expect(state.tasks).toHaveLength(2);
+        expect(state.tasks[1].kind).toBe('acceptance');
+        expect(state.tasks[1].testFiles).toEqual(['test/acceptance.test.js']);
+        expect(mockGitHubAgent.createIssue).toHaveBeenCalledTimes(2);
+      });
+
+      it('受け入れタスクは CodingAgent ではなく、要件・package.json・ファイル一覧だけを渡して AcceptanceTestAgent で生成する', async () => {
+        const { StateManager } = await import('../state/manager.js');
+        const sm = new StateManager(statePath);
+        await sm.initialize('instruction', 'owner', 'repo');
+        await sm.updateRequirementsDoc('REQ: GET / で HTML');
+        await sm.setTasks([acceptanceTask()]);
+        mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+          paths.includes('package.json') && paths.length === 1 ? { 'package.json': '{"scripts":{"start":"node server.js"}}' } : {}
+        );
+        mockGitHubAgent.runCommandInWorktree.mockResolvedValue({ stdout: 'server.js\npublic/index.html\n', stderr: '', exitCode: 0, timedOut: false });
+        mockAcceptanceAgent.generateAcceptanceTests.mockResolvedValue({
+          files: [{ path: 'test/acceptance.test.js', content: 'test' }],
+          commitMessage: 'test: acceptance', prTitle: 't', prBody: 'b',
+        });
+
+        await new Orchestrator(statePath).runPhase2();
+
+        expect(mockCodingAgent.generateCode).not.toHaveBeenCalled();
+        const [, req, pkg, files] = mockAcceptanceAgent.generateAcceptanceTests.mock.calls[0];
+        expect(req).toBe('REQ: GET / で HTML');
+        expect(pkg).toContain('node server.js');
+        expect(files).toEqual(['server.js', 'public/index.html']);
+      });
+
+      it('FixAgent には全実装ファイルを渡し、受け入れテストへの変更は無視して実装の変更だけをコミットする', async () => {
+        const { StateManager } = await import('../state/manager.js');
+        const sm = new StateManager(statePath);
+        await sm.initialize('instruction', 'owner', 'repo');
+        await sm.setTasks([acceptanceTask()]);
+        mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+          Object.fromEntries(paths.map((p) => [p, `content of ${p}`]))
+        );
+        mockAcceptanceAgent.generateAcceptanceTests.mockResolvedValue({
+          files: [{ path: 'test/acceptance.test.js', content: 'test' }],
+          commitMessage: 'test: acceptance', prTitle: 't', prBody: 'b',
+        });
+        mockReviewAgent.reviewPr.mockResolvedValueOnce({
+          approved: false,
+          comments: [{ path: 'server.js', line: 1, body: 'GET / が 403', severity: 'blocking' }],
+          summary: 'fix',
+        });
+        // 実際の PR と同じく、受け入れテストはこの PR で追加されたファイルとして差分に含まれる（FixAgent にも見えている）
+        mockGitHubAgent.getPrDiff.mockResolvedValue(
+          'diff --git a/test/acceptance.test.js b/test/acceptance.test.js\nnew file mode 100644\n--- /dev/null\n+++ b/test/acceptance.test.js\n@@ -0,0 +1 @@\n+test'
+        );
+        mockFixAgent.fixCode.mockResolvedValueOnce({
+          files: [
+            { path: 'test/acceptance.test.js', content: 'weakened test' },
+            { path: 'server.js', content: 'fixed server' },
+          ],
+          commitMessage: 'fix', fixSummary: '',
+        });
+
+        await new Orchestrator(statePath).runPhase2();
+
+        const fixInputFiles = mockFixAgent.fixCode.mock.calls[0][2];
+        expect(Object.keys(fixInputFiles)).toEqual(expect.arrayContaining(['server.js', 'public/index.html', 'test/acceptance.test.js']));
+        const fixCommit = mockGitHubAgent.commitFiles.mock.calls[1];
+        expect(fixCommit[3].map((f: any) => f.path)).toEqual(['server.js']);
+      });
     });
 
     it('skipped タスクは処理せず completed にしない', async () => {
