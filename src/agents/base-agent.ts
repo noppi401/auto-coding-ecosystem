@@ -6,6 +6,7 @@ import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
 import { resolveClaudeBin } from '../utils/claude-bin.js';
 import { killProcessTree } from '../utils/process-tree.js';
+import { parseClaudeStdout } from '../utils/claude-output.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import {
@@ -17,11 +18,12 @@ import {
   markProviderLimitReached,
 } from '../utils/llm-errors.js';
 
-interface ClaudeOutput {
-  type: string;
-  is_error: boolean;
-  result: string;
-  session_id: string;
+/** 起動後、最初の出力が期限内に来なかった（プロセスがハングした）ことを表す。リトライ対象。 */
+export class StartupStallError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StartupStallError';
+  }
 }
 
 type LlmProvider = 'auto' | 'claude' | 'codex' | 'local' | 'gemini';
@@ -306,12 +308,27 @@ export class BaseAgent {
 
       // Pass prompt via stdin to avoid Windows path/quoting issues with @file syntax.
       // --dangerously-skip-permissions prevents interactive permission prompts that would hang the process.
-      args.push('-p', '--model', model, '--output-format', 'json', '--dangerously-skip-permissions');
+      // stream-json は起動直後に init イベントを出すので、無反応のハングを早期に検知できる。
+      args.push('-p', '--model', model, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions');
 
-      const stdout = await this._execCommand('claude', args, userMessage);
+      const firstOutputTimeoutMs = Number(process.env.CLAUDE_STARTUP_TIMEOUT_MS || '120000');
+      const maxStartupRetries = Number(process.env.CLAUDE_STARTUP_RETRIES || '2');
+      let stdout = '';
+      for (let attempt = 0; ; attempt++) {
+        try {
+          stdout = await this._execCommand('claude', args, userMessage, { firstOutputTimeoutMs });
+          break;
+        } catch (err) {
+          if (!(err instanceof StartupStallError) || attempt >= maxStartupRetries) throw err;
+          logger.warn(`${this.agentName} claude produced no output at startup; retrying`, {
+            attempt: attempt + 1,
+            of: maxStartupRetries,
+          });
+        }
+      }
 
       try {
-        const output = JSON.parse(stdout) as ClaudeOutput;
+        const output = parseClaudeStdout(stdout);
         if (output.is_error) {
           throw new Error(`Claude error: ${output.result}`);
         }
@@ -320,6 +337,7 @@ export class BaseAgent {
 
         logger.info(`${this.agentName} completed`, {
           sessionId: this.sessionId,
+          costUsd: output.total_cost_usd,
         });
 
         return output.result;
@@ -410,7 +428,12 @@ export class BaseAgent {
     return await this._execCommand(command, args);
   }
 
-  protected async _execCommand(command: string, args: string[], stdin?: string): Promise<string> {
+  protected async _execCommand(
+    command: string,
+    args: string[],
+    stdin?: string,
+    opts: { firstOutputTimeoutMs?: number } = {}
+  ): Promise<string> {
     const claudeBin = command === 'claude' ? await resolveClaudeBin() : null;
     return new Promise((resolve, reject) => {
       // On Windows, use cmd.exe to execute the command
@@ -432,7 +455,12 @@ export class BaseAgent {
       child.stdout?.setEncoding('utf8');
       child.stderr?.setEncoding('utf8');
 
+      let startupTimer: NodeJS.Timeout | undefined;
       child.stdout?.on('data', (data) => {
+        if (startupTimer) {
+          clearTimeout(startupTimer);
+          startupTimer = undefined;
+        }
         stdout += data.toString();
       });
 
@@ -446,13 +474,28 @@ export class BaseAgent {
       child.stdin?.end();
 
       const timeoutMs = Number(process.env.AGENT_COMMAND_TIMEOUT_MS || '900000');
+      // 何が来ていたかを残す（原因調査のため）。stdout は長いので末尾だけ。
+      const diagnostics = () =>
+        `stdoutBytes=${stdout.length} stdoutTail=${JSON.stringify(stdout.slice(-300))} stderr=${JSON.stringify(stderr.slice(-300))}`;
       const timeout = setTimeout(() => {
+        clearTimeout(startupTimer);
         killProcessTree(child);
-        reject(new Error(`Command timeout after ${Math.round(timeoutMs / 1000)}s`));
+        reject(new Error(`Command timeout after ${Math.round(timeoutMs / 1000)}s; ${diagnostics()}`));
       }, timeoutMs);
+
+      // 起動後すぐ最初の出力が来るはずの呼び出し（stream-json の init）が無反応なら、ハングとして早期に打ち切る
+      if (opts.firstOutputTimeoutMs) {
+        const ms = opts.firstOutputTimeoutMs;
+        startupTimer = setTimeout(() => {
+          clearTimeout(timeout);
+          killProcessTree(child);
+          reject(new StartupStallError(`No output within ${Math.round(ms / 1000)}s of start; ${diagnostics()}`));
+        }, ms);
+      }
 
       child.on('close', (code) => {
         clearTimeout(timeout);
+        clearTimeout(startupTimer);
         if (code === 0) {
           resolve(stdout);
         } else {
@@ -462,6 +505,7 @@ export class BaseAgent {
 
       child.on('error', (err) => {
         clearTimeout(timeout);
+        clearTimeout(startupTimer);
         reject(err);
       });
     });

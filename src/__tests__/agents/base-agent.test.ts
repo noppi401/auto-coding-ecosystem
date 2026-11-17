@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { BaseAgent } from '../../agents/base-agent.js';
+import { BaseAgent, StartupStallError } from '../../agents/base-agent.js';
 
 vi.mock('../../utils/logger.js', () => ({
   logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn(), section: vi.fn() },
@@ -75,6 +75,35 @@ describe('BaseAgent', () => {
       const result = await agent.invoke('test message');
 
       expect(result).toBe('Hello from Claude');
+    });
+
+    it('起動時に無反応（StartupStallError）なら再実行し、2回目の成功結果を返す', async () => {
+      const agent = new BaseAgent('', 'PlanningAgent');
+      const exec = vi
+        .spyOn(agent as any, '_execCommand')
+        .mockRejectedValueOnce(new StartupStallError('no output'))
+        .mockResolvedValueOnce(CLAUDE_SUCCESS);
+
+      const result = await agent.invoke('test message');
+
+      expect(result).toBe('Hello from Claude');
+      expect(exec).toHaveBeenCalledTimes(2);
+    });
+
+    it('起動時の無反応が上限を超えて続けば、握りつぶさず例外にする', async () => {
+      process.env.CLAUDE_STARTUP_RETRIES = '2';
+      process.env.FALLBACK_LLM_PROVIDER = 'none';
+      const agent = new BaseAgent('', 'PlanningAgent');
+      const exec = vi
+        .spyOn(agent as any, '_execCommand')
+        .mockRejectedValue(new StartupStallError('no output'));
+
+      try {
+        await expect(agent.invoke('test message')).rejects.toThrow('no output');
+        expect(exec).toHaveBeenCalledTimes(3); // 初回 + リトライ2回
+      } finally {
+        delete process.env.CLAUDE_STARTUP_RETRIES;
+      }
     });
 
     it('sessionId が output.session_id に更新される', async () => {
