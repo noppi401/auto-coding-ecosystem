@@ -23,6 +23,7 @@ import { describeOtherTasks } from './utils/other-tasks.js';
 import { fetchPrDiffAfterFix } from './utils/refetch-diff.js';
 import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
 import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
+import { modifiedFilesInDiff } from './utils/modified-files.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -554,6 +555,10 @@ export class Orchestrator {
 
       // Review
       const otherTasksContext = describeOtherTasks(state.tasks, task);
+      // 差分外の定義を「未定義」と誤検知しないよう、変更された既存ファイルの全文も渡す
+      const modifiedFileContents = await this.githubAgent.readFiles(
+        state.githubOwner, state.githubRepo, task.branchName, modifiedFilesInDiff(rawPrDiff)
+      );
       const reviewResult =
         iteration === 1
           ? await reviewAgent.reviewPr(
@@ -561,9 +566,10 @@ export class Orchestrator {
               prDiff,
               state.requirementsDoc,
               state.designDoc,
-              otherTasksContext
+              otherTasksContext,
+              modifiedFileContents
             )
-          : await reviewAgent.reReviewAfterFix(task, prDiff, otherTasksContext);
+          : await reviewAgent.reReviewAfterFix(task, prDiff, otherTasksContext, modifiedFileContents);
 
       const combinedReviewResult = await this._runCodexReviewIfEnabled(
         task,

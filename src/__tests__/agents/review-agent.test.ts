@@ -80,3 +80,34 @@ describe('ReviewAgent: 他タスクの計画をレビューに渡す', () => {
     expect(prompt).not.toMatch(/OTHER PLANNED TASKS/);
   });
 });
+
+describe('ReviewAgent: 変更された既存ファイルの全文をレビューに渡す', () => {
+  let agent: ReviewAgent;
+  let invoke: ReturnType<typeof vi.fn>;
+  const task = makeTask('t3', 'Validation', ['server.js']);
+  // 実際に起きた誤検知: 定数の定義は差分の外（未変更の行）にあり、差分だけでは「未定義」に見えた
+  const fullServer = 'export const MAX_BODY_SIZE = 1024 * 1024;\n// ...\nfunction read() { return MAX_BODY_SIZE; }';
+
+  beforeEach(() => {
+    agent = new ReviewAgent();
+    vi.spyOn(agent as any, 'loadSystemPrompt').mockResolvedValue(undefined);
+    invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(APPROVED) as any;
+  });
+
+  it('reviewPr: 差分外の定義を含むファイル全文と、未定義判定の前に確認する指示が含まれる', async () => {
+    await agent.reviewPr(task, 'diff', 'req', 'design', '', { 'server.js': fullServer });
+    const prompt = invoke.mock.calls[0][0] as string;
+    expect(prompt).toContain('export const MAX_BODY_SIZE = 1024 * 1024;');
+    expect(prompt).toMatch(/before flagging .*undefined/i);
+  });
+
+  it('reReviewAfterFix: 同様にファイル全文が含まれる', async () => {
+    await agent.reReviewAfterFix(task, 'diff', '', { 'server.js': fullServer });
+    expect(invoke.mock.calls[0][0] as string).toContain('export const MAX_BODY_SIZE = 1024 * 1024;');
+  });
+
+  it('ファイル全文が無ければ、そのセクションは出さない', async () => {
+    await agent.reviewPr(task, 'diff', 'req', 'design', '');
+    expect(invoke.mock.calls[0][0] as string).not.toContain('FULL CURRENT CONTENT');
+  });
+});
