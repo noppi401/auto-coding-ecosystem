@@ -40,12 +40,13 @@ Respond with JSON array of tasks with this structure:
     "title": "Task title",
     "summary": "Task summary",
     "branchName": "feat/task-001-description",
-    "targetFiles": ["src/file1.ts", "src/file2.ts"],
-    "testFiles": ["src/__tests__/file1.test.ts"],
+    "targetFiles": ["src/file1.<ext>", "src/file2.<ext>"],
+    "testFiles": ["test/file1.test.<ext>"],
     "complexity": "medium"
   }
 ]
 
+Use the language and file extensions decided in the requirements and design (do not switch to TypeScript or add a build step unless they say so); "<ext>" above is a placeholder.
 IMPORTANT: Every task MUST include at least one entry in "testFiles". List only test files separately from implementation files in "targetFiles".
 TEST FILES: give each task its OWN new, small test file named after the feature it tests (e.g. "test/post-todos.test.js").
 Never list a test file that another task also lists, and never plan to append to one shared test file.
