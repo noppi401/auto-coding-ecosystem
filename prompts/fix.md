@@ -43,6 +43,7 @@ Return only the changed line ranges as `hunks`, using the "N| " line numbers sho
 - Fix ALL blocking issues (non-negotiable)
 - Fix suggestions where they improve code quality
 - Make minimal changes (don't refactor unrelated code)
+- **When tests fail, fix the implementation (or a genuine bug in the test). Never change the test script to stop running a failing test file**
 - **Never change project-wide settings to fit one file** (package.json `type`, tsconfig.json `module`, build/test scripts). Change the new or changed file to match the project instead. If an earlier fix changed such a setting and broke other files, revert that setting
 - Maintain consistency with existing code
 - Keep the same overall architecture
