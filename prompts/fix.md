@@ -21,18 +21,16 @@ You are an expert programmer. Your task is to fix code based on review comments.
 ## Output Format
 
 You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
-Use `contentBase64` for file contents. Encode each complete file as UTF-8 base64 and do not put raw source code in JSON strings.
+Return only the changed line ranges as `hunks`, using the "N| " line numbers shown in the task message (never base64, never full file content). Only a brand-new file uses top-level `newLines`.
 
 ```json
 {
   "files": [
     {
       "path": "src/models/user.py",
-      "contentBase64": "aW1wb3J0IGhhc2hsaWIK"
-    },
-    {
-      "path": "src/middleware/auth.py",
-      "contentBase64": "aW1wb3J0IGp3dAo="
+      "hunks": [
+        { "startLine": 12, "endLine": 12, "newLines": ["def get_user(user_id: int) -> User:"] }
+      ]
     }
   ],
   "commitMessage": "fix: address code review comments - add type hints and validate JWT expiration",
@@ -45,6 +43,7 @@ Use `contentBase64` for file contents. Encode each complete file as UTF-8 base64
 - Fix ALL blocking issues (non-negotiable)
 - Fix suggestions where they improve code quality
 - Make minimal changes (don't refactor unrelated code)
+- **Never change project-wide settings to fit one file** (package.json `type`, tsconfig.json `module`, build/test scripts). Change the new or changed file to match the project instead. If an earlier fix changed such a setting and broke other files, revert that setting
 - Maintain consistency with existing code
 - Keep the same overall architecture
 - Don't remove tested functionality

@@ -101,7 +101,8 @@ Rules:
 - To insert without deleting, set endLine = startLine - 1.
 - For a brand-new file not listed above, omit "hunks" and use top-level "newLines" instead.
 - Multiple hunks per file are allowed; list them in ascending startLine order.
-- Each string in newLines is one source line — no JSON escape tricks needed, just write the line.`;
+- Each string in newLines is one source line — no JSON escape tricks needed, just write the line.
+- Only edit files listed above. Never change project-wide settings (package.json "type", tsconfig.json "module", scripts) to fit one file — change that file to match the project instead, and revert such a setting if an earlier fix changed it.`;
 
     let result = await this.invoke(prompt, 16000);
     let fixOutput: FixOutput;
