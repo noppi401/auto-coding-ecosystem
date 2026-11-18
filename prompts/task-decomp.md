@@ -54,6 +54,7 @@ You MUST respond with a JSON array of tasks. NO additional text or explanation.
 
 - Each task should be completable within a few hours
 - Tasks should be ordered logically (dependencies first)
+- The FIRST task must set up the project configuration (e.g. `package.json` with a working `test` script) so every later task's tests can run
 - Branch names should be descriptive and follow pattern: `feat/task-NNN-description`
 - target_files should list only implementation files (created or modified)
 - test_files should list all test files that must be written for this task — ALWAYS include at least one test file per task

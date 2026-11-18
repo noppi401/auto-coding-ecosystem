@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import { normalizeComplexity } from '../utils/model-routing.js';
 import { randomUUID } from 'crypto';
 import { assignUniqueTestFiles } from '../utils/unique-test-files.js';
+import { moveSetupTaskFirst } from '../utils/setup-task-order.js';
 
 export class TaskDecompAgent extends BaseAgent {
   constructor() {
@@ -46,6 +47,7 @@ Respond with JSON array of tasks with this structure:
   }
 ]
 
+The FIRST task must set up the project configuration (e.g. package.json with a working "test" script) so that every later task's tests can run.
 Use the language and file extensions decided in the requirements and design (do not switch to TypeScript or add a build step unless they say so); "<ext>" above is a placeholder.
 IMPORTANT: Every task MUST include at least one entry in "testFiles". List only test files separately from implementation files in "targetFiles".
 TEST FILES: give each task its OWN new, small test file named after the feature it tests (e.g. "test/post-todos.test.js").
@@ -91,10 +93,14 @@ Keep each test file focused (roughly 300 lines or less). Put shared test setup (
       );
 
       // 1 本のテストファイルを全タスクで共有すると肥大化して生成・編集が壊れるため、タスクごとの専用ファイルにする
-      const { tasks, reassigned } = assignUniqueTestFiles(mapped);
+      const { tasks: uniqueTestTasks, reassigned } = assignUniqueTestFiles(mapped);
       for (const r of reassigned) {
         logger.warn('Test file shared by multiple tasks; assigned a dedicated test file', `${r.branchName}: ${r.from} -> ${r.to}`);
       }
+      // package.json（test script）が後ろにあると、それまでのタスクが npm test を実行できないため先頭に置く
+      const { tasks, moved, warning } = moveSetupTaskFirst(uniqueTestTasks);
+      if (moved) logger.warn('Moved the project setup task to the front so tests can run from the first task', moved);
+      if (warning) logger.warn('Project setup task is not first', warning);
       return tasks;
     } catch (err) {
       logger.error('Failed to parse tasks', err);
