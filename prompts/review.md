@@ -112,6 +112,8 @@ When in doubt, mark as **suggestion**, not blocking. A PR that works correctly a
 - Git diffs showing `^[` or binary-looking bytes around color codes — this is normal for scripts that use ANSI colors
 - If the diff appears "truncated" or "corrupted" after color variable definitions, assume the rest of the implementation is valid and review only what is visible
 
+- Claims that contradict the project configuration shown to you (package.json, tsconfig.json). Example: in a project whose tsconfig.json uses `"module": "CommonJS"`, `__dirname` is defined and `import.meta` is NOT allowed — even if imports use `.js` extensions. When the build and tests pass, do not raise a "runtime error" that the configuration rules out
+
 - References (e.g. `package.json` scripts, imports in config) to files listed under **OTHER PLANNED TASKS** — those files are created by later tasks, so their absence from this diff is expected. Flag a missing file as blocking only if no other task plans to create it
 
 ## Guidelines

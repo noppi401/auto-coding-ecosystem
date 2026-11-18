@@ -410,6 +410,29 @@ describe('Orchestrator', () => {
       expect(otherTasks).not.toContain('- Server:');
     });
 
+    it('ReviewAgent と FixAgent に、変更の有無に関わらず設定ファイル（package.json / tsconfig.json）を渡す', async () => {
+      // run 26: tsconfig が CommonJS なのに、レビューが ES モジュールと誤解して __dirname を誤指摘した
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([makeTask({ targetFiles: ['src/handlers.ts'] })]);
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        Object.fromEntries(paths.filter((p) => ['package.json', 'tsconfig.json', 'src/handlers.ts'].includes(p)).map((p) => [p, `content of ${p}`]))
+      );
+      mockReviewAgent.reviewPr.mockResolvedValueOnce({
+        approved: false,
+        comments: [{ path: 'src/handlers.ts', line: 1, body: 'x', severity: 'blocking' }],
+        summary: 'fix',
+      });
+
+      await new Orchestrator(statePath).runPhase2();
+
+      const reviewFiles = mockReviewAgent.reviewPr.mock.calls[0][5];
+      expect(Object.keys(reviewFiles)).toEqual(expect.arrayContaining(['package.json', 'tsconfig.json']));
+      const fixFiles = mockFixAgent.fixCode.mock.calls[0][2];
+      expect(Object.keys(fixFiles)).toEqual(expect.arrayContaining(['package.json', 'tsconfig.json']));
+    });
+
     describe('受け入れタスク', () => {
       const acceptanceTask = () =>
         makeTask({

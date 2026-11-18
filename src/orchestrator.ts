@@ -27,6 +27,9 @@ import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
 import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
 import { modifiedFilesInDiff } from './utils/modified-files.js';
 import { entryFileFromStartScript } from './utils/smoke-check.js';
+
+// レビュー・修正で常に参照させるプロジェクト設定（モジュール方式・ビルド・スクリプトの前提を誤解させないため）
+const PROJECT_CONFIG_FILES = ['package.json', 'tsconfig.json'];
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
@@ -577,8 +580,10 @@ export class Orchestrator {
       // Review
       const otherTasksContext = describeOtherTasks(state.tasks, task);
       // 差分外の定義を「未定義」と誤検知しないよう、変更された既存ファイルの全文も渡す
+      // 設定ファイルも常に渡す（モジュール方式などを誤解した指摘を防ぐ。存在しないものは readFiles が無視する）
       const modifiedFileContents = await this.githubAgent.readFiles(
-        state.githubOwner, state.githubRepo, task.branchName, modifiedFilesInDiff(rawPrDiff)
+        state.githubOwner, state.githubRepo, task.branchName,
+        [...new Set([...PROJECT_CONFIG_FILES, ...modifiedFilesInDiff(rawPrDiff)])]
       );
       const reviewResult =
         iteration === 1
@@ -739,6 +744,7 @@ export class Orchestrator {
           ...[...prDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map(m => m[1]),
           ...blockingComments.map(c => c.path).filter(Boolean),
           ...task.targetFiles,
+          ...PROJECT_CONFIG_FILES,
         ])];
         const currentFiles: { [path: string]: string } = changedPaths.length > 0
           ? await this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, changedPaths)

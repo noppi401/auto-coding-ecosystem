@@ -26,7 +26,8 @@ ${content}
     }
     body += chunk;
   }
-  return `FULL CURRENT CONTENT OF MODIFIED FILES (the diff shows only changed hunks; before flagging an identifier as undefined or something as missing, check these full files):
+  return `FULL CURRENT CONTENT OF PROJECT CONFIG AND MODIFIED FILES (the diff shows only changed hunks; before flagging an identifier as undefined or something as missing, check these full files.
+Respect the project configuration: e.g. the module system is decided by package.json "type" and tsconfig.json "module"; never demand changes that contradict it):
 ${body}`;
 }
 
