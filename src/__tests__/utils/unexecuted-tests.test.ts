@@ -55,6 +55,26 @@ describe('findUnexecutedTestFiles', () => {
     expect(findUnexecutedTestFiles('node --test tests/api.test.js && npm run lint', FILES)).toEqual([]);
   });
 
+  describe('ビルドしてから実行する構成（TypeScript → dist）', () => {
+    const TS_FILES = ['tests/project-init.test.ts', 'tests/handlers.test.ts', 'tests/router.test.ts'];
+
+    it('ビルド工程の後に一部のコンパイル済みテストだけを実行する場合、未実行の元ファイルを返す（run 26 で見逃した構成）', () => {
+      expect(findUnexecutedTestFiles('npm run build && node --test dist/tests/project-init.test.js', TS_FILES)).toEqual([
+        'tests/handlers.test.ts',
+        'tests/router.test.ts',
+      ]);
+    });
+
+    it('コンパイル先のディレクトリ指定・glob は元ファイルをカバーする', () => {
+      expect(findUnexecutedTestFiles('tsc && node --test dist/tests/', TS_FILES)).toEqual([]);
+      expect(findUnexecutedTestFiles('npx tsc -p . && node --test "dist/tests/**/*.test.js"', TS_FILES)).toEqual([]);
+    });
+
+    it('ビルド以外の解釈できない工程が混ざる場合は、従来どおり判定対象外', () => {
+      expect(findUnexecutedTestFiles('npm run lint && node --test dist/tests/project-init.test.js', TS_FILES)).toEqual([]);
+    });
+  });
+
   it('./ 付きや Windows 区切りのパスも同一視する', () => {
     expect(findUnexecutedTestFiles('node --test ./tests/api.test.js', ['tests\\api.test.js'])).toEqual([]);
   });
