@@ -410,6 +410,26 @@ describe('Orchestrator', () => {
       expect(otherTasks).not.toContain('- Server:');
     });
 
+    it('CodingAgent に、設定ファイルの内容とリポジトリのファイル一覧をプロジェクトの文脈として渡す', async () => {
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([makeTask({ targetFiles: [], testFiles: ['test/integration.test.js'] })]);
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        Object.fromEntries(paths.filter((p) => p === 'package.json').map((p) => [p, '{"name":"app"}']))
+      );
+      mockGitHubAgent.runCommandInWorktree.mockImplementation(async (_o: string, _r: string, _b: string, cmd: string) => ({
+        stdout: cmd === 'git' ? 'package.json\nsrc/server.js\ntest/test-utils.js\n' : '',
+        stderr: '', exitCode: 0, timedOut: false,
+      }));
+
+      await new Orchestrator(statePath).runPhase2();
+
+      const projectContext = mockCodingAgent.generateCode.mock.calls[0][5] as string;
+      expect(projectContext).toContain('{"name":"app"}');
+      expect(projectContext).toContain('- test/test-utils.js');
+    });
+
     it('ReviewAgent と FixAgent に、変更の有無に関わらず設定ファイル（package.json / tsconfig.json）を渡す', async () => {
       // run 26: tsconfig が CommonJS なのに、レビューが ES モジュールと誤解して __dirname を誤指摘した
       const { StateManager } = await import('../state/manager.js');

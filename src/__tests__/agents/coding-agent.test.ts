@@ -62,6 +62,25 @@ describe('CodingAgent.generateCode: 既存ファイルと他タスクの扱い',
     expect(prompt).toMatch(/ONLY this task/);
   });
 
+  it('プロジェクトの文脈（設定ファイルとファイル一覧）を参照用として、本体の生成とテスト追加の生成の両方に渡す', async () => {
+    // run 27: 新規テストだけのタスクで設定もファイル一覧も見えず、CommonJS のプロジェクトに ESM で書いた
+    const agent = new CodingAgent();
+    const invoke = vi
+      .spyOn(agent as any, 'invoke')
+      .mockResolvedValueOnce(okResponse([{ path: 'server.js', lines: ['impl'] }]))
+      .mockResolvedValueOnce(okResponse([{ path: 'server.test.js', lines: ['t'] }]));
+    const context = 'package.json:\n{"name":"app","scripts":{"test":"node --test"}}\n\nFILES:\n- test/test-utils.js';
+
+    await agent.generateCode(makeTask(), 'req', 'design', {}, '', context);
+
+    for (const call of invoke.mock.calls) {
+      const prompt = call[0] as string;
+      expect(prompt).toContain('PROJECT CONTEXT');
+      expect(prompt).toContain('- test/test-utils.js');
+      expect(prompt).toMatch(/module system/i);
+    }
+  });
+
   it('テスト追加の再生成でも、既存のテストファイルの内容を渡す（書き直しで既存テストを消さない）', async () => {
     const agent = new CodingAgent();
     const invoke = vi

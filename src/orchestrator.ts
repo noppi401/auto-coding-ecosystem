@@ -368,6 +368,21 @@ export class Orchestrator {
   }
 
   /**
+   * CodingAgent に参照用として渡す、プロジェクトの文脈（設定ファイルの内容とファイル一覧）。
+   * 新規ファイルだけを作るタスクでも、モジュール方式・テストの慣習・既存のヘルパーを知れるようにする。
+   */
+  private async _buildProjectContext(githubAgent: GitHubAgent, state: ProjectState, task: Task): Promise<string> {
+    const config = await githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, PROJECT_CONFIG_FILES);
+    const ls = await githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+    );
+    const files = (ls?.stdout ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const parts = Object.entries(config).map(([path, content]) => `${path}:\n${content.substring(0, 4000)}`);
+    if (files.length > 0) parts.push(`FILES IN THE REPOSITORY:\n${files.slice(0, 300).map((f) => `- ${f}`).join('\n')}`);
+    return parts.join('\n\n');
+  }
+
+  /**
    * Issue #8: IMPL_DOC_RELEVANCE=true のとき、要件・設計書をタスク関連部分に絞り込む。
    * 無効時は state の全文をそのまま返す（現行挙動を維持）。
    */
@@ -467,7 +482,8 @@ export class Orchestrator {
         requirementsDoc,
         designDoc,
         currentTargetFiles,
-        describeOtherTasks(state.tasks, task)
+        describeOtherTasks(state.tasks, task),
+        await this._buildProjectContext(githubAgent, state, task)
       );
     }
 

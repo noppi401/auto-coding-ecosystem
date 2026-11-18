@@ -16,6 +16,9 @@ export interface CodeOutput {
 }
 
 export class CodingAgent extends BaseAgent {
+  /** generateCode の間、各生成（本体・テスト追加）のプロンプトに添えるプロジェクトの文脈（設定ファイルとファイル一覧）。 */
+  private projectContext = '';
+
   constructor(promptFile = 'coding.md', agentName = 'CodingAgent') {
     super(promptFile, agentName);
   }
@@ -25,9 +28,11 @@ export class CodingAgent extends BaseAgent {
     requirementsDoc: string,
     designDoc: string,
     currentFiles: Record<string, string> = {},
-    otherTasksContext = ''
+    otherTasksContext = '',
+    projectContext = ''
   ): Promise<CodeOutput> {
     await this.loadSystemPrompt();
+    this.projectContext = projectContext;
 
     logger.section(`CodingAgent: Generating code for "${task.title}"`);
 
@@ -163,7 +168,11 @@ ${requirementsDoc.substring(0, 6000)}
 DESIGN (excerpt):
 ${designDoc.substring(0, 4000)}
 
-${otherTasksContext ? `OTHER PLANNED TASKS (implemented separately later; do NOT implement their behavior here):
+${this.projectContext ? `PROJECT CONTEXT (read-only reference; do not return these files unless the task requires changing them).
+Follow the module system, language and test conventions this shows (e.g. no "type": "module" in package.json means CommonJS: use require/module.exports), and reuse existing helpers:
+${this.projectContext}
+
+` : ''}${otherTasksContext ? `OTHER PLANNED TASKS (implemented separately later; do NOT implement their behavior here):
 ${otherTasksContext}
 
 Implement ONLY this task's scope; leave anything listed above to its own task.
