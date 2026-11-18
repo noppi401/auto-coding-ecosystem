@@ -368,6 +368,71 @@ export class Orchestrator {
   }
 
   /**
+   * npm test を実行できない（package.json や有効な test script が無い）場合も、テストを素通りさせない。
+   * JS のテストファイルがあれば `node --test <files>` で直接実行し、失敗は blocking にする。
+   * （run 30: package.json を作るタスクが後ろにあり、それまでのタスクがテスト未実行のままマージされた）
+   */
+  private async _runNodeTestFallback(
+    githubAgent: GitHubAgent,
+    state: ProjectState,
+    task: Task,
+    comments: ReviewComment[],
+    reason: string
+  ): Promise<void> {
+    const ls = await githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+    );
+    const testFiles = (ls?.stdout ?? '')
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => /\.(?:test|spec)\.[cm]?js$/.test(l));
+    if (testFiles.length === 0) {
+      await this._recordTaskCheck(task, {
+        name: 'test',
+        status: 'skipped',
+        summary: `${reason}ため npm test を未実行（実行できる JS のテストファイルも無い）`,
+      });
+      return;
+    }
+
+    const args = ['--test', ...testFiles];
+    const command = commandLine('node', args);
+    logger.info(`Running tests directly because ${reason === 'package.json がない' ? 'package.json is missing' : 'no test script'}...`, command);
+    const result = await githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'node', args, 120000
+    );
+    if (result.exitCode === 0 && !result.timedOut) {
+      await this._recordTaskCheck(task, {
+        name: 'test',
+        status: 'passed',
+        summary: `${reason}ため node --test で直接実行して通過（${testFiles.length} ファイル）`,
+        command,
+        exitCode: 0,
+      });
+      return;
+    }
+
+    const output = (result.stdout + '\n' + result.stderr).trim();
+    logger.warn('Direct node --test failed', `exit code: ${result.exitCode}`);
+    await this._recordTaskCheck(task, {
+      name: 'test',
+      status: 'failed',
+      summary: `${reason}ため node --test で直接実行して失敗`,
+      command,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+      severity: 'blocking',
+      details: summarizeOutput(output, 1500),
+    });
+    comments.push({
+      path: 'package.json',
+      line: 1,
+      body: `**テスト失敗**\n\n${reason}ため \`${command}\` で直接テストを実行し、失敗しました。実装（またはテストの不具合）を直してください。テストを実行対象から外して通すことは禁止です。\n\n\`\`\`\n${output.slice(0, 3000)}\n\`\`\``,
+      severity: 'blocking',
+    });
+  }
+
+  /**
    * CodingAgent に参照用として渡す、プロジェクトの文脈（設定ファイルの内容とファイル一覧）。
    * 新規ファイルだけを作るタスクでも、モジュール方式・テストの慣習・既存のヘルパーを知れるようにする。
    */
@@ -1615,11 +1680,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           });
         }
       } else {
-        await this._recordTaskCheck(task, {
-          name: 'test',
-          status: 'skipped',
-          summary: '有効な test script がないため npm test を未実行',
-        });
+        await this._runNodeTestFallback(githubAgent, state, task, comments, '有効な test script がない');
       }
     } else {
       await this._recordTaskCheck(task, {
@@ -1627,11 +1688,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         status: 'skipped',
         summary: 'package.json がないため依存インストールを未実行',
       });
-      await this._recordTaskCheck(task, {
-        name: 'test',
-        status: 'skipped',
-        summary: 'package.json がないため npm test を未実行',
-      });
+      await this._runNodeTestFallback(githubAgent, state, task, comments, 'package.json がない');
     }
 
     // 起動確認（受け入れタスクのみ）: テストとは独立に、実際に起動して GET / が応答するかを確かめる。

@@ -673,6 +673,47 @@ describe('Orchestrator', () => {
       );
     });
 
+    describe('package.json（有効な test script）が無くてもテストを実行する', () => {
+      // run 30: package.json を作るタスクが 10 番目で、タスク 1〜9 はテストを一度も実行せずにマージされた
+      const runGate = async (pkgFiles: Record<string, string>, tracked: string[], nodeTestExit: number) => {
+        process.env.BUILD_CHECK_ENABLED = 'true';
+        const { orchestrator, state, task } = await prepareTaskState();
+        mockGitHubAgent.readFiles.mockResolvedValueOnce({}).mockResolvedValueOnce(pkgFiles);
+        mockGitHubAgent.runCommandInWorktree.mockImplementation(
+          async (_o: string, _r: string, _b: string, cmd: string) => ({
+            stdout: cmd === 'git' ? tracked.join('\n') : 'not ok 1 - validation\n# fail 1',
+            stderr: '',
+            exitCode: cmd === 'node' ? nodeTestExit : 0,
+            timedOut: false,
+          })
+        );
+        const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+        const { StateManager } = await import('../state/manager.js');
+        const saved = await new StateManager(statePath).load();
+        const nodeCall = mockGitHubAgent.runCommandInWorktree.mock.calls.find((c: any[]) => c[3] === 'node');
+        return { comments, check: saved?.tasks[0].lastChecks?.find((c) => c.name === 'test'), nodeCall };
+      };
+
+      it('package.json が無くても、JS のテストファイルを node --test で直接実行し、失敗は blocking にする', async () => {
+        const { comments, check, nodeCall } = await runGate({}, ['src/server.js', 'test/a.test.js', 'test/b.test.mjs', 'test/c.test.ts'], 1);
+        expect(nodeCall?.[4]).toEqual(['--test', 'test/a.test.js', 'test/b.test.mjs']);
+        expect(check?.status).toBe('failed');
+        expect(comments.some((c: any) => c.severity === 'blocking' && c.body.includes('validation'))).toBe(true);
+      });
+
+      it('test script が無い package.json でも同様に実行し、通れば passed', async () => {
+        const { comments, check } = await runGate({ 'package.json': '{"name":"app"}' }, ['test/a.test.js'], 0);
+        expect(check?.status).toBe('passed');
+        expect(comments.filter((c: any) => c.severity === 'blocking')).toHaveLength(0);
+      });
+
+      it('実行できるテストファイルが無ければ、従来どおりスキップする', async () => {
+        const { check, nodeCall } = await runGate({}, ['src/server.js'], 0);
+        expect(nodeCall).toBeUndefined();
+        expect(check?.status).toBe('skipped');
+      });
+    });
+
     describe('起動確認ゲート（受け入れタスクのみ）', () => {
       const runGate = async (kind: 'acceptance' | undefined, smoke: { status: string; summary: string; details?: string }) => {
         process.env.BUILD_CHECK_ENABLED = 'true';
