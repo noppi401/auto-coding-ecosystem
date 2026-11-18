@@ -770,23 +770,40 @@ export class Orchestrator {
 
         const fixAgent = new FixAgent();
         this._applyTaskModel(fixAgent, task);
-        const fixOutput = await fixAgent.fixCode(
+        let fixOutput = await fixAgent.fixCode(
           task,
           blockingComments,
           currentFiles
         );
 
         // 見せていない既存ファイルへの書き込みは、内容を消す事故になるため除外して可視化する
-        const { kept: shownFixFiles, blocked: blockedFixFiles } = await guardUnshownOverwrites(
+        const guard = (shown: { [path: string]: string }) => guardUnshownOverwrites(
           fixOutput.files,
-          Object.keys(currentFiles),
+          Object.keys(shown),
           (p) => githubAgent.pathExistsInWorktree(state.githubOwner, state.githubRepo, task.branchName, p)
         );
+        let { kept: shownFixFiles, blocked: blockedFixFiles } = await guard(currentFiles);
         if (blockedFixFiles.length > 0) {
-          logger.warn(
-            'FixAgent tried to overwrite existing files it was not shown; ignoring those changes',
-            blockedFixFiles.join(', ')
+          // 止めたファイルを直す必要がある修正もあるため、それらを見せたうえで 1 回だけ呼び直す（見ないままの上書きは防ぐ）
+          const read = await this.githubAgent.readFiles(
+            state.githubOwner, state.githubRepo, task.branchName, blockedFixFiles
           );
+          const extra = Object.fromEntries(Object.entries(read).filter(([p]) => blockedFixFiles.includes(p)));
+          if (Object.keys(extra).length > 0) {
+            logger.warn(
+              'FixAgent tried to overwrite existing files it was not shown; retrying once with those files shown',
+              blockedFixFiles.join(', ')
+            );
+            const retryFiles = { ...currentFiles, ...extra };
+            fixOutput = await fixAgent.fixCode(task, blockingComments, retryFiles);
+            ({ kept: shownFixFiles, blocked: blockedFixFiles } = await guard(retryFiles));
+          }
+          if (blockedFixFiles.length > 0) {
+            logger.warn(
+              'FixAgent tried to overwrite existing files it was not shown; ignoring those changes',
+              blockedFixFiles.join(', ')
+            );
+          }
         }
         // 受け入れテストは要件から独立に書いた判定基準なので、FixAgent に書き換えさせない（期待値を変えて通すのを防ぐ）
         const protectedTests = task.kind === 'acceptance' ? new Set(task.testFiles ?? []) : new Set<string>();

@@ -410,6 +410,34 @@ describe('Orchestrator', () => {
       expect(otherTasks).not.toContain('- Server:');
     });
 
+    it('FixAgent が見せていない既存ファイルを変えようとしたら、そのファイルを見せて 1 回だけ呼び直す', async () => {
+      // run 27/28: ガードが止めた後「変更なし」で失敗に終わり、見せていないファイルを直す必要がある修正が進まなかった
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([makeTask({ targetFiles: [], testFiles: ['test/integration.test.js'] })]);
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        Object.fromEntries(paths.map((p) => [p, `content of ${p}`]))
+      );
+      mockReviewAgent.reviewPr.mockResolvedValueOnce({
+        approved: false,
+        comments: [{ path: 'package.json', line: 1, body: 'tests fail', severity: 'blocking' }],
+        summary: 'fix',
+      });
+      mockFixAgent.fixCode
+        .mockResolvedValueOnce({ files: [{ path: 'src/server.js', content: 'blind overwrite' }], commitMessage: 'fix', fixSummary: '' })
+        .mockResolvedValueOnce({ files: [{ path: 'src/server.js', content: 'informed fix' }], commitMessage: 'fix', fixSummary: '' });
+
+      await new Orchestrator(statePath).runPhase2();
+
+      expect(mockFixAgent.fixCode).toHaveBeenCalledTimes(2);
+      expect(Object.keys(mockFixAgent.fixCode.mock.calls[0][2])).not.toContain('src/server.js');
+      expect(mockFixAgent.fixCode.mock.calls[1][2]['src/server.js']).toBe('content of src/server.js');
+      const committed = mockGitHubAgent.commitFiles.mock.calls.flatMap((c: any[]) => c[3]);
+      expect(committed).toContainEqual({ path: 'src/server.js', content: 'informed fix' });
+      expect(committed).not.toContainEqual({ path: 'src/server.js', content: 'blind overwrite' });
+    });
+
     it('CodingAgent に、設定ファイルの内容とリポジトリのファイル一覧をプロジェクトの文脈として渡す', async () => {
       const { StateManager } = await import('../state/manager.js');
       const sm = new StateManager(statePath);
