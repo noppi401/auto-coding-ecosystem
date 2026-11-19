@@ -22,6 +22,7 @@ import { trimPrDiff } from './utils/diff-trim.js';
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
+import { decideRequirementsSplit, splitByHeadings, sliceByLineRanges } from './utils/requirements-split.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
 const VALIDATION_MAX_ITERATIONS = parseInt(process.env.VALIDATION_MAX_ITERATIONS || '2');
@@ -1734,7 +1735,7 @@ ${repositoryContext || '(repository context was not loaded)'}
     repositoryContext?: string
   ): Promise<string> {
     const validationAgent = new RequirementsValidationAgent();
-    let doc = await reqAgent.generateRequirements(instruction, repositoryContext);
+    let doc = await this._generateRequirementsDoc(reqAgent, instruction, repositoryContext);
 
     for (let iter = 1; iter <= VALIDATION_MAX_ITERATIONS; iter++) {
       await this._saveMarkdown('.ecosystem/requirements.md', doc);
@@ -1777,6 +1778,64 @@ ${repositoryContext || '(repository context was not loaded)'}
     }
 
     return doc;
+  }
+
+  /**
+   * 依頼文が大きい場合はカテゴリ別に要件定義し、最後にカテゴリ横断の要件・矛盾点を追記する。
+   * 規模判断と見出し分割は決定論で行い、見出しがない場合のみ LLM に行範囲を提案させる。
+   * 分割できなかった場合は警告して従来の単一エージェントに戻す。
+   */
+  private async _generateRequirementsDoc(
+    reqAgent: RequirementsAgent,
+    instruction: string,
+    repositoryContext?: string
+  ): Promise<string> {
+    const decision = decideRequirementsSplit(instruction);
+    if (!decision.shouldSplit) {
+      return reqAgent.generateRequirements(instruction, repositoryContext);
+    }
+
+    let split = splitByHeadings(instruction);
+    if (!split) {
+      try {
+        const ranges = await reqAgent.proposeCategoryRanges(instruction);
+        const categories = sliceByLineRanges(instruction, ranges);
+        if (categories) split = { preamble: '', categories };
+        else logger.warn('Requirement category proposal did not cover the instruction exactly; ignoring it');
+      } catch (err) {
+        if (isLlmUsageLimitError(err)) throw err;
+        logger.warn('Requirement category proposal failed', String(err));
+      }
+    }
+    if (!split) {
+      logger.warn('Large instruction could not be split into categories; using single requirements agent', decision.reason);
+      return reqAgent.generateRequirements(instruction, repositoryContext);
+    }
+
+    const titles = split.categories.map((category) => category.title);
+    logger.info('Generating requirements per category', {
+      reason: decision.reason,
+      categories: titles.join(', '),
+    });
+
+    const categoryDocs: Array<{ title: string; doc: string }> = [];
+    for (const category of split.categories) {
+      const doc = await reqAgent.generateCategoryRequirements(category, split.preamble, titles, repositoryContext);
+      categoryDocs.push({ title: category.title, doc: doc.trim() });
+    }
+    const crossCutting = await reqAgent.generateCrossCuttingRequirements(split.preamble, categoryDocs);
+
+    return [
+      '# 要件定義書',
+      '',
+      `> 依頼文が大きいため ${categoryDocs.length} カテゴリに分けて要件定義しました（${decision.reason}）。`,
+      ...categoryDocs.flatMap(({ title, doc }) => ['', `## カテゴリ: ${title}`, '', doc]),
+      '',
+      '## カテゴリ横断の要件・矛盾点',
+      '',
+      crossCutting.trim(),
+      '',
+    ].join('\n');
   }
 
   private async _designWithValidation(

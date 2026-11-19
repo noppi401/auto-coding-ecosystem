@@ -1,6 +1,7 @@
 import { BaseAgent } from './base-agent.js';
 import { Task, ReviewResult, ReviewComment } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { truncateWithWarning } from '../utils/truncate.js';
 
 const REQ_DOC_MAX = 4000;
 const DESIGN_DOC_MAX = 3000;
@@ -27,10 +28,10 @@ TASK: ${task.title}
 SUMMARY: ${task.summary}
 
 REQUIREMENTS (excerpt):
-${requirementsDoc.substring(0, REQ_DOC_MAX)}
+${truncateWithWarning(requirementsDoc, REQ_DOC_MAX, 'ReviewAgent requirements')}
 
 DESIGN (excerpt):
-${designDoc.substring(0, DESIGN_DOC_MAX)}
+${truncateWithWarning(designDoc, DESIGN_DOC_MAX, 'ReviewAgent design')}
 
 PR DIFF (first ${DIFF_MAX} chars):
 ${prDiff.substring(0, DIFF_MAX)}

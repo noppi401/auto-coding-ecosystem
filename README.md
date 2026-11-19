@@ -140,11 +140,11 @@ Links:
 
 ### Phase 1: 計画（要件 → 設計 → タスク分解 → Issue 起票）
 
-1. **RequirementsAgent** が指示文（と既存リポジトリのコンテキスト）から要件定義を生成。
+1. **RequirementsAgent** が指示文（と既存リポジトリのコンテキスト）から要件定義を生成。指示文が `REQ_SPLIT_CHARS`（既定 8000 文字）以上なら、md の見出し（見出しがなければ LLM が提案した行範囲）でカテゴリに分け、カテゴリごとに要件定義したうえで「カテゴリ横断の要件・矛盾点」を追記して統合する。
 2. **RequirementsValidationAgent** が要件をスコア評価し、閾値未満なら修正ループ（`.ecosystem/requirements-validation.md`）。
 3. **DesignAgent** が要件から設計書を生成。
 4. **DesignValidationAgent** が設計をスコア評価し、閾値未満なら修正ループ（`.ecosystem/design-validation.md`）。
-5. **TaskDecompAgent** が設計を実装可能なタスクへ分解（各タスクに複雑度 `complexity` と、書くべきテストファイル一覧 `testFiles` を付与）。
+5. **TaskDecompAgent** が要件定義・設計書の全文から実装可能なタスクへ分解（各タスクに複雑度 `complexity` と、書くべきテストファイル一覧 `testFiles` を付与）。
 6. タスク一覧を承認（`TASK_APPROVAL`）後、**GitHubAgent** が各タスクの Issue を起票。
 
 既存リポジトリ改修時は **RepoContextSummaryAgent** がリポジトリコンテキストを一度だけ要約し、上記 1・3・5 で再利用してトークンを抑えます（`REPO_CONTEXT_SUMMARY`）。
@@ -399,6 +399,10 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent 系コマンドのタイムアウト。`CODEX_TIMEOUT_MS` 未指定時は CodexAgent もこの値を使う |
 | `REPO_CONTEXT_SUMMARY` | `false` | modify 時にリポジトリコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用してトークンを削減する。`true` で有効化 |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | 要約エージェントに渡すコンテキストの最大文字数 |
+| `REQ_SPLIT_MODE` | `auto` | 要件定義のカテゴリ分割。`auto`（文字数で判断）/ `always` / `never` |
+| `REQ_SPLIT_CHARS` | `8000` | `auto` 時、指示文がこの文字数以上ならカテゴリ別に要件定義する |
+| `TASK_DECOMP_REQ_DOC_MAX_CHARS` | なし（全文） | タスク分解に渡す要件定義の最大文字数。指定時は超過分を切り詰め、警告ログを出す |
+| `TASK_DECOMP_DESIGN_DOC_MAX_CHARS` | なし（全文） | タスク分解に渡す設計書の最大文字数。指定時は超過分を切り詰め、警告ログを出す |
 | `REPO_CONTEXT_MAX_FILES` | `80` | 既存 repo 読み取り時の最大ファイル数 |
 | `REPO_CONTEXT_MAX_CHARS` | `40000` | 既存 repo 読み取り時の最大文字数 |
 | `REPO_CONTEXT_FILE_MAX_CHARS` | `4000` | 1 ファイルあたりの最大文字数 |

@@ -1,6 +1,7 @@
 import { BaseAgent } from './base-agent.js';
 import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { truncateWithWarning } from '../utils/truncate.js';
 import { LlmUsageLimitError, isCodexUsageLimitMessage } from '../utils/llm-errors.js';
 
 export interface CodeOutput {
@@ -141,10 +142,10 @@ TASK: ${task.title}
 SUMMARY: ${task.summary}
 
 REQUIREMENTS (excerpt):
-${requirementsDoc.substring(0, 6000)}
+${truncateWithWarning(requirementsDoc, 6000, 'CodingAgent requirements (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
 
 DESIGN (excerpt):
-${designDoc.substring(0, 4000)}
+${truncateWithWarning(designDoc, 4000, 'CodingAgent design (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
 
 ${Object.keys(currentFiles).length > 0 ? `CURRENT TARGET FILES:
 ${Object.entries(currentFiles)
