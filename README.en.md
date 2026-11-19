@@ -12,11 +12,11 @@ The Orchestrator calls each agent in sequence; state is saved to `.ecosystem/sta
 
 ### Phase 1: Planning (Requirements → Design → Task Decomposition → Issue Creation)
 
-1. **RequirementsAgent** generates a requirements document from the instruction (and existing repository context).
+1. **RequirementsAgent** generates a requirements document from the instruction (and existing repository context). If the instruction is at least `REQ_SPLIT_CHARS` (default 8000) characters, it is split into categories by its Markdown headings (or by LLM-proposed line ranges when there are none), requirements are written per category, and a "cross-category requirements and conflicts" section is appended.
 2. **RequirementsValidationAgent** scores the requirements; if below the threshold, a correction loop runs (`.ecosystem/requirements-validation.md`).
 3. **DesignAgent** generates a design document from the requirements.
 4. **DesignValidationAgent** scores the design; if below the threshold, a correction loop runs (`.ecosystem/design-validation.md`).
-5. **TaskDecompAgent** decomposes the design into implementable tasks (each task is assigned a `complexity` rating and a `testFiles` list specifying which test files must be written).
+5. **TaskDecompAgent** decomposes the full requirements and design docs into implementable tasks (each task is assigned a `complexity` rating and a `testFiles` list specifying which test files must be written).
 6. After task-list approval (`TASK_APPROVAL`), **GitHubAgent** creates a GitHub Issue for each task.
 
 When modifying an existing repository, **RepoContextSummaryAgent** summarizes the repository context once and reuses it in steps 1, 3, and 5 to reduce token usage (`REPO_CONTEXT_SUMMARY`).
@@ -162,6 +162,7 @@ State is saved to `.ecosystem/state.json`.
 ## Interactive Mode Features
 
 - **Multi-line instruction input**: Select "Multi-line editor input" for a new request to open `$EDITOR` (Windows: notepad / others: vi) for multi-line instructions.
+- **Load request from file**: Select "Load from file" to read a `.md` / `.txt` / `.html` requirements file. HTML is converted to plain text (tags, scripts and styles removed). PDF is not supported (loading one fails with an error).
 - **Save and restore selections**: Provider, model, phase, etc. are saved to `.ecosystem/wizard-defaults.json` and restored as defaults on next launch (`.env` / CLI args take priority).
 - **Execution count selection**: When running `Phase 1 + 2`, choose from "once / multiple / until limit" (available for both new requests and Issue runs).
 - **Task approval**: Preview the task list before creating GitHub Issues; approve (Enter) or cancel (c) (`TASK_APPROVAL=false` to disable; always skipped with `--auto`).
@@ -170,7 +171,7 @@ State is saved to `.ecosystem/state.json`.
 
 ## Writing Instruction Files
 
-For long instructions, passing them via `--instruction-file` is recommended to avoid encoding issues or shell escaping problems.
+For long instructions, passing them via `--instruction-file` is recommended to avoid encoding issues or shell escaping problems. `.md` / `.txt` / `.html` files are supported (HTML is converted to text; PDF is not supported).
 
 PowerShell:
 
@@ -270,6 +271,10 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent command timeout (ms). CodexAgent uses it when `CODEX_TIMEOUT_MS` is unset |
 | `REPO_CONTEXT_SUMMARY` | `false` | On modify, summarize repository context once and reuse across requirements/design/task decomposition to reduce tokens. Enable with `true` |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | Max characters of context passed to the summary agent |
+| `REQ_SPLIT_MODE` | `auto` | Per-category requirements generation. `auto` (by size) / `always` / `never` |
+| `REQ_SPLIT_CHARS` | `8000` | In `auto` mode, split into categories when the instruction is at least this many characters |
+| `TASK_DECOMP_REQ_DOC_MAX_CHARS` | none (full text) | Max characters of the requirements doc passed to task decomposition. When set, the excess is truncated with a warning |
+| `TASK_DECOMP_DESIGN_DOC_MAX_CHARS` | none (full text) | Max characters of the design doc passed to task decomposition. When set, the excess is truncated with a warning |
 | `REPO_CONTEXT_MAX_FILES` | `80` | Max files read when scanning an existing repo |
 | `REPO_CONTEXT_MAX_CHARS` | `40000` | Max characters read when scanning an existing repo |
 | `REPO_CONTEXT_FILE_MAX_CHARS` | `4000` | Max characters per file when scanning |

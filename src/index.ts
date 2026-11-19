@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import { config } from 'dotenv';
-import { promises as fs } from 'fs';
 import { resolve } from 'path';
 import React from 'react';
 import { render } from 'ink';
@@ -14,6 +13,7 @@ import { showRequestWizard, showModelSelectWizard, showLoopSelectWizard } from '
 import { ensureGhAuth } from './ui/prompts/authPrompt.js';
 import { parseCodexIntelligence } from './utils/codex-options.js';
 import { buildIssuesInstruction } from './utils/issue-instruction.js';
+import { readInstructionFile } from './utils/instruction-file.js';
 import { GitHubAgent } from './agents/github-agent.js';
 import { bus } from './events.js';
 import type { SourceIssue, Task } from './state/types.js';
@@ -451,7 +451,7 @@ async function uiEntry(args: string[]): Promise<void> {
       else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumbers.push(...parseIssueNumbers(args[++i])); }
     }
 
-    if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
+    if (instructionFile) instruction = await readInstructionFile(instructionFile);
     if (!repoName || (!instruction && issueNumbers.length === 0)) {
       console.error('Error: instruction or issue-number, and repo-name are required'); process.exit(1);
     }
@@ -635,7 +635,7 @@ async function main(): Promise<void> {
           else if (args[i] === '--retry-failed')  { retryFailed = true; }
           else if (args[i] === '--issue-number' && i + 1 < args.length) { issueNumbers.push(...parseIssueNumbers(args[++i])); }
         }
-        if (instructionFile) instruction = await fs.readFile(instructionFile, 'utf-8');
+        if (instructionFile) instruction = await readInstructionFile(instructionFile);
         if (!repoName || (!instruction && issueNumbers.length === 0)) { console.error('instruction or issue-number, and repo-name are required'); process.exit(1); }
         let sourceIssues: SourceIssue[] | undefined;
         if (issueNumbers.length > 0) {

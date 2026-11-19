@@ -1,12 +1,13 @@
 import { BaseAgent } from './base-agent.js';
 import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
+import { truncateWithWarning } from '../utils/truncate.js';
 import { Hunk, applyHunks, validateHunks } from '../utils/hunks.js';
+import { LlmUsageLimitError, isCodexUsageLimitMessage } from '../utils/llm-errors.js';
 
 // hunk は行番号で位置を指定するため、既存ファイルには 1 始まりの行番号を付けて見せる（FixAgent と同じ形式）
 const withLineNumbers = (text: string) =>
   text.split('\n').map((line, i) => `${i + 1}| ${line}`).join('\n');
-import { LlmUsageLimitError, isCodexUsageLimitMessage } from '../utils/llm-errors.js';
 
 export interface CodeOutput {
   files: Array<{ path: string; content: string; contentBase64?: string }>;
@@ -163,10 +164,10 @@ TASK: ${task.title}
 SUMMARY: ${task.summary}
 
 REQUIREMENTS (excerpt):
-${requirementsDoc.substring(0, 6000)}
+${truncateWithWarning(requirementsDoc, 6000, 'CodingAgent requirements (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
 
 DESIGN (excerpt):
-${designDoc.substring(0, 4000)}
+${truncateWithWarning(designDoc, 4000, 'CodingAgent design (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
 
 ${this.projectContext ? `PROJECT CONTEXT (read-only reference; do not return these files unless the task requires changing them).
 Follow the module system, language and test conventions this shows (e.g. no "type": "module" in package.json means CommonJS: use require/module.exports), and reuse existing helpers:

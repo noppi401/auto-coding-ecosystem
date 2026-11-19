@@ -58,6 +58,9 @@ function makeState(overrides: Partial<ProjectState> = {}): ProjectState {
 const mockRequirementsAgent = {
   generateRequirements: vi.fn().mockResolvedValue('# Requirements\n...'),
   reviseRequirements: vi.fn().mockResolvedValue('# Requirements revised\n...'),
+  proposeCategoryRanges: vi.fn(),
+  generateCategoryRequirements: vi.fn(async (category: { title: string }) => `### ${category.title} requirements`),
+  generateCrossCuttingRequirements: vi.fn().mockResolvedValue('### Cross-cutting\nなし'),
   getHistory: vi.fn().mockReturnValue(null),
   setModelOverride: vi.fn(),
 };
@@ -286,6 +289,60 @@ describe('Orchestrator', () => {
   });
 
   describe('runPhase1()', () => {
+    describe('大きな依頼文のカテゴリ別要件定義', () => {
+      beforeEach(() => {
+        process.env.REQ_SPLIT_CHARS = '10';
+      });
+      afterEach(() => {
+        delete process.env.REQ_SPLIT_CHARS;
+      });
+
+      it('見出しで分けたカテゴリごとに要件定義し、横断分析を追記して統合する', async () => {
+        const instruction = '# App\n共通事項\n## 認証\nログイン\n## タスク\n追加と削除';
+        const orchestrator = new Orchestrator(statePath);
+        const state = await orchestrator.runPhase1(instruction, 'owner', 'repo');
+
+        expect(mockRequirementsAgent.generateRequirements).not.toHaveBeenCalled();
+        expect(mockRequirementsAgent.proposeCategoryRanges).not.toHaveBeenCalled();
+        expect(mockRequirementsAgent.generateCategoryRequirements.mock.calls.map((c) => c[0])).toEqual([
+          { title: '認証', content: '## 認証\nログイン' },
+          { title: 'タスク', content: '## タスク\n追加と削除' },
+        ]);
+        expect(mockRequirementsAgent.generateCategoryRequirements.mock.calls[0][1]).toBe('# App\n共通事項');
+        expect(mockRequirementsAgent.generateCrossCuttingRequirements).toHaveBeenCalledOnce();
+        expect(state.requirementsDoc).toContain('## カテゴリ: 認証\n\n### 認証 requirements');
+        expect(state.requirementsDoc).toContain('## カテゴリ: タスク\n\n### タスク requirements');
+        expect(state.requirementsDoc).toContain('## カテゴリ横断の要件・矛盾点\n\n### Cross-cutting');
+      });
+
+      it('見出しがない場合は LLM の行範囲提案で原文を切り出す', async () => {
+        mockRequirementsAgent.proposeCategoryRanges.mockResolvedValueOnce([
+          { title: 'A', startLine: 1, endLine: 1 },
+          { title: 'B', startLine: 2, endLine: 3 },
+        ]);
+        const orchestrator = new Orchestrator(statePath);
+        await orchestrator.runPhase1('line one\nline two\nline three', 'owner', 'repo');
+
+        expect(mockRequirementsAgent.generateCategoryRequirements.mock.calls.map((c) => c[0])).toEqual([
+          { title: 'A', content: 'line one' },
+          { title: 'B', content: 'line two\nline three' },
+        ]);
+        expect(mockRequirementsAgent.generateRequirements).not.toHaveBeenCalled();
+      });
+
+      it('行範囲提案が全行を覆わない場合は単一エージェントに戻す', async () => {
+        mockRequirementsAgent.proposeCategoryRanges.mockResolvedValueOnce([
+          { title: 'A', startLine: 1, endLine: 1 },
+          { title: 'B', startLine: 2, endLine: 2 },
+        ]);
+        const orchestrator = new Orchestrator(statePath);
+        await orchestrator.runPhase1('line one\nline two\nline three', 'owner', 'repo');
+
+        expect(mockRequirementsAgent.generateCategoryRequirements).not.toHaveBeenCalled();
+        expect(mockRequirementsAgent.generateRequirements).toHaveBeenCalledOnce();
+      });
+    });
+
     it('confirmTasks が承認した場合は tasks:set まで到達する', async () => {
       const orchestrator = new Orchestrator(statePath);
       const confirmTasks = vi.fn().mockResolvedValue(true);

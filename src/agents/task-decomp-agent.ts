@@ -2,6 +2,7 @@ import { BaseAgent } from './base-agent.js';
 import { Task } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 import { normalizeComplexity } from '../utils/model-routing.js';
+import { truncateWithWarning } from '../utils/truncate.js';
 import { randomUUID } from 'crypto';
 import { assignUniqueTestFiles } from '../utils/unique-test-files.js';
 import { moveSetupTaskFirst } from '../utils/setup-task-order.js';
@@ -19,16 +20,17 @@ export class TaskDecompAgent extends BaseAgent {
 
     logger.section('TaskDecompAgent: Decomposing design into tasks');
 
-    const reqMax = Number(process.env.TASK_DECOMP_REQ_DOC_MAX_CHARS || '6000');
-    const designMax = Number(process.env.TASK_DECOMP_DESIGN_DOC_MAX_CHARS || '4000');
+    // 既定は全文を渡す（先頭だけだと後半の要件がタスク化されない）。env 指定時のみ上限を掛ける。
+    const requirements = truncateWithWarning(requirementsDoc, process.env.TASK_DECOMP_REQ_DOC_MAX_CHARS, 'TaskDecompAgent requirements');
+    const design = truncateWithWarning(designDoc, process.env.TASK_DECOMP_DESIGN_DOC_MAX_CHARS, 'TaskDecompAgent design');
 
-    const prompt = `Based on the following requirements and design, break down the work into specific, implementable tasks. Return ONLY valid JSON (no markdown, no explanations).
+    const prompt = `Based on the following requirements and design, break down the work into specific, implementable tasks. Cover every requirement. Return ONLY valid JSON (no markdown, no explanations).
 
-REQUIREMENTS (excerpt):
-${requirementsDoc.substring(0, reqMax)}
+REQUIREMENTS:
+${requirements}
 
-DESIGN (excerpt):
-${designDoc.substring(0, designMax)}
+DESIGN:
+${design}
 
 For each task, also estimate "complexity" as one of: "low", "medium", "high".
 - low: 設定変更・小さな表示修正など、影響範囲が局所的で判断が少ないタスク

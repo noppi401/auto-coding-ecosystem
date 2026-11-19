@@ -219,7 +219,7 @@
     <div class="grid">
       <div class="agent plan">
         <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>RequirementsAgent</h4>
-        <p><span class="ja">指示文（＋既存リポジトリ要約）から要件定義書を生成。</span><span class="en">Generates a requirements document from the instruction (+ existing repository summary).</span></p>
+        <p><span class="ja">指示文（＋既存リポジトリ要約）から要件定義書を生成。大きな指示文は見出しでカテゴリに分け、カテゴリ別に要件定義してから横断要件・矛盾点を追記して統合する。</span><span class="en">Generates a requirements document from the instruction (+ existing repository summary). Large instructions are split into categories by heading, written per category, then merged with cross-category requirements and conflicts.</span></p>
       </div>
       <div class="agent valid">
         <div class="role"><span class="ja">検証</span><span class="en">Validation</span></div><h4>RequirementsValidationAgent</h4>
@@ -415,7 +415,7 @@ npm run dev -- phase2 --retry-failed
 
 <span class="c ja"># 進捗を確認</span><span class="c en"># Check progress</span>
 npm run dev -- status</pre>
-    <div class="note"><span class="ja">長い指示は、文字化けを避けるため <code>--instruction-file</code> での受け渡しを推奨します（対話モードでは「エディタで複数行入力」も選べます）。</span><span class="en">For long instructions, passing them via <code>--instruction-file</code> is recommended to avoid encoding issues (in interactive mode you can also select "Multi-line editor input").</span></div>
+    <div class="note"><span class="ja">長い指示は、文字化けを避けるため <code>--instruction-file</code> での受け渡しを推奨します（対話モードでは「エディタで複数行入力」「ファイルを指定」も選べます）。ファイルは .md / .txt / .html に対応し、PDF は非対応です。</span><span class="en">For long instructions, passing them via <code>--instruction-file</code> is recommended to avoid encoding issues (in interactive mode you can also select "Multi-line editor input" or "Load from file"). .md / .txt / .html files are supported; PDF is not.</span></div>
 
     <h3><span class="ja">モデルを指定する</span><span class="en">Specifying models</span></h3>
 <pre>npm run dev -- phase2 --planning-model claude-haiku-4-5-20251001
