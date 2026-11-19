@@ -610,6 +610,45 @@ describe('Orchestrator', () => {
       expect(mockGitHubAgent.mergePr).toHaveBeenCalled();
     });
 
+    it('approved=true でも blocking 指摘が残っていればマージせず FixAgent に回す', async () => {
+      // ゲートが指摘ゼロで通る状態（tsconfig/package.json なし）でないと approved が上書きされず再現しない
+      delete process.env.BUILD_CHECK_ENABLED;
+      mockReviewAgent.reviewPr.mockResolvedValueOnce({
+        approved: true,
+        comments: [{ path: 'src/index.ts', line: 1, body: 'Broken', severity: 'blocking' }],
+        summary: 'Approved but has blocking',
+      });
+
+      const orchestrator = new Orchestrator(statePath);
+      await orchestrator.runPhase1('instruction', 'owner', 'repo');
+      await orchestrator.runPhase2();
+
+      expect(mockFixAgent.fixCode).toHaveBeenCalledOnce();
+      expect(mockFixAgent.fixCode.mock.invocationCallOrder[0])
+        .toBeLessThan(mockGitHubAgent.mergePr.mock.invocationCallOrder[0]);
+    });
+
+    it('tsc を実行できなかった（exitCode=-1）場合は blocking としてマージを止める', async () => {
+      delete process.env.BUILD_CHECK_ENABLED;
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        paths.includes('tsconfig.json') ? { 'tsconfig.json': '{}' } : {}
+      );
+      // 呼び出し順に依存しないよう、tsc の呼び出しにだけ -1 を返す（コード生成前に git ls-files も呼ばれる）
+      mockGitHubAgent.runCommandInWorktree.mockImplementation(
+        async (_o: string, _r: string, _b: string, cmd: string, args: string[]) =>
+          cmd === 'npx' && args.includes('tsc')
+            ? { stdout: '', stderr: 'Worktree not found', exitCode: -1, timedOut: false }
+            : { stdout: '', stderr: '', exitCode: 0, timedOut: false }
+      );
+
+      const orchestrator = new Orchestrator(statePath);
+      await orchestrator.runPhase1('instruction', 'owner', 'repo');
+      await orchestrator.runPhase2();
+
+      const blocking = mockFixAgent.fixCode.mock.calls[0]?.[1] as Array<{ path: string; severity: string }>;
+      expect(blocking).toEqual([expect.objectContaining({ path: 'tsconfig.json', severity: 'blocking' })]);
+    });
+
     it('LlmUsageLimitError が発生したとき task を failed にしてリスロー', async () => {
       const { LlmUsageLimitError } = await import('../utils/llm-errors.js');
       mockCodingAgent.generateCode.mockRejectedValueOnce(

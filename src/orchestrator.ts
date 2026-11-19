@@ -712,10 +712,8 @@ export class Orchestrator {
       }
       const blockingComments = this.getBlockingComments(combinedReviewResult);
       const suggestionComments = this.getSuggestionComments(combinedReviewResult);
-      const shouldMerge =
-        combinedReviewResult.approved ||
-        blockingComments.length === 0 ||
-        (iteration === this.maxReviewIterations && blockingComments.length === 0);
+      // approved フラグは LLM の自己申告なので、blocking 指摘の有無だけで判定する
+      const shouldMerge = blockingComments.length === 0;
 
       // Save review history
       await this.stateManager.updateTask(task.id, {
@@ -1472,7 +1470,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           body: '**ビルドエラー（TypeScript型チェックタイムアウト）**\n\n`npx tsc --noEmit` がタイムアウトしました。型チェックが完了する状態にしてからマージしてください。',
           severity: 'blocking',
         });
-      } else if (tscResult.exitCode !== 0 && tscResult.exitCode !== -1) {
+      } else if (tscResult.exitCode !== 0) {
         const errorOutput = (tscResult.stdout + '\n' + tscResult.stderr).trim();
         const lineCount = errorOutput.split('\n').length;
         logger.warn('TypeScript type check failed', `${lineCount} lines of errors`);

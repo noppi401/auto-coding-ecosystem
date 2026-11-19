@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { promises as fs } from 'fs';
-import { dirname, join, resolve } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { ReviewComment, SourceIssue } from '../state/types.js';
 import { logger } from '../utils/logger.js';
@@ -144,13 +144,16 @@ export class GitHubAgent {
     }
 
     for (const file of files) {
-      const filePath = join(worktree, file.path);
+      const filePath = this.resolveInWorktree(worktree, file.path);
       await fs.mkdir(dirname(filePath), { recursive: true });
       await fs.writeFile(filePath, file.content);
     }
 
+    // 書き込んだファイルだけをステージする（ビルドゲートが作る node_modules 等を含めない）。
+    // node_modules / dist は git の除外設定にも入れる。入れないと、変更が無くても直後の status に
+    // 未追跡の node_modules/ が出て「変更あり」と判定され、空のコミットを試みて失敗する
     await this.excludeBuildArtifacts(worktree);
-    await this.exec('git', ['add', '.'], worktree);
+    await this.exec('git', ['add', '--', ...files.map((file) => file.path)], worktree);
     const status = await this.exec('git', ['status', '--porcelain'], worktree);
     if (!status.trim()) {
       logger.info('No file changes to commit', branch);
@@ -193,7 +196,7 @@ export class GitHubAgent {
     const files: Record<string, string> = {};
 
     for (const path of paths) {
-      const fullPath = join(worktree, path);
+      const fullPath = this.resolveInWorktree(worktree, path);
       const content = await fs.readFile(fullPath, 'utf-8').catch(() => null);
       if (content !== null) {
         files[path] = content;
@@ -563,22 +566,6 @@ export class GitHubAgent {
     }
   }
 
-  /*
-    for (const comment of comments) {
-      await this.exec('gh', [
-        'pr',
-        'review',
-        String(prNumber),
-        '--repo',
-        `${owner}/${repo}`,
-        '--comment',
-        '--body',
-        `File: ${comment.path}, Line: ${comment.line}\n${comment.body}`,
-      ]);
-    }
-  }
-  */
-
   async mergePr(owner: string, repo: string, prNumber: number): Promise<void> {
     await this.exec('gh', [
       'pr',
@@ -719,6 +706,15 @@ export class GitHubAgent {
     return join(process.cwd(), this.workspaceRoot, safeOwner, safeRepo, safeBranch);
   }
 
+  private resolveInWorktree(worktree: string, relativePath: string): string {
+    const root = resolve(worktree);
+    const fullPath = resolve(root, relativePath);
+    if (!fullPath.startsWith(root + sep)) {
+      throw new Error(`Refusing path outside worktree: ${relativePath}`);
+    }
+    return fullPath;
+  }
+
   private async pathExists(path: string): Promise<boolean> {
     return fs.stat(path).then(() => true).catch(() => false);
   }
@@ -828,7 +824,8 @@ export class GitHubAgent {
     } catch (err: any) {
       const stderr = err?.stderr ? String(err.stderr) : '';
       const stdout = err?.stdout ? String(err.stdout) : '';
-      throw new Error(`${command} ${args.join(' ')} failed: ${stderr || stdout || err.message}`);
+      const message = `${command} ${args.join(' ')} failed: ${stderr || stdout || err.message}`;
+      throw new Error(message.replace(/x-access-token:[^@\s]+@/g, 'x-access-token:***@'));
     }
   }
 
