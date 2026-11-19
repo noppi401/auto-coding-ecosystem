@@ -17,6 +17,7 @@ import { GitHubAgent } from '../../agents/github-agent.js';
 import { buildIssuesInstruction } from '../../utils/issue-instruction.js';
 import { loadWizardDefaults, saveWizardDefaults } from './wizardDefaults.js';
 import { editTextInEditor } from '../../utils/editor-input.js';
+import { readInstructionFile } from '../../utils/instruction-file.js';
 import { t } from '../../utils/i18n.js';
 
 export type PhaseMode = 'phase1+2' | 'phase1only' | 'phase2only';
@@ -371,12 +372,31 @@ export async function showRequestWizard(
       options: [
         { value: 'inline', label: t('1行で入力', 'Single line input'),           hint: t('短い指示向け', 'For short instructions') },
         { value: 'editor', label: t('エディタで複数行入力', 'Multi-line editor input'), hint: t('$EDITOR / notepad を開いて改行込みで入力', 'Open $EDITOR / notepad with multi-line support') },
+        { value: 'file',   label: t('ファイルを指定', 'Load from file'),             hint: t('.md / .txt / .html（PDF は非対応）', '.md / .txt / .html (PDF not supported)') },
       ],
       initialValue: 'inline',
     });
     if (isCancel(inputMethodRaw)) { outro(t('中止', 'Cancelled')); process.exit(0); }
 
-    if (inputMethodRaw === 'editor') {
+    if (inputMethodRaw === 'file') {
+      let loaded: string | null = null;
+      while (loaded === null) {
+        const pathRaw = await text({
+          message: t('依頼文ファイルのパス', 'Path to the request file'),
+          placeholder: './requirements.md',
+          validate: (v) => ((v ?? '').trim() ? undefined : t('パスを入力してください', 'Please enter a path')),
+        });
+        if (isCancel(pathRaw)) { outro(t('中止', 'Cancelled')); process.exit(0); }
+        const filePath = (pathRaw as string).trim().replace(/^["']|["']$/g, '');
+        try {
+          loaded = await readInstructionFile(filePath);
+          clackLog.info(t(`${filePath} を読み込みました（${loaded.length}文字）`, `Loaded ${filePath} (${loaded.length} chars)`));
+        } catch (err) {
+          clackLog.warn(t(`読み込めませんでした: ${String(err)}`, `Could not load file: ${String(err)}`));
+        }
+      }
+      instruction = loaded;
+    } else if (inputMethodRaw === 'editor') {
       clackLog.info(t('エディタを開きます。入力後は保存して閉じてください。', 'Opening editor. Save and close when done.'));
       const edited = (await editTextInEditor(
         t('# ここに依頼内容を記載してください（この行は削除してかまいません）\n', '# Enter your request here (you can delete this line)\n')

@@ -162,6 +162,7 @@ State is saved to `.ecosystem/state.json`.
 ## Interactive Mode Features
 
 - **Multi-line instruction input**: Select "Multi-line editor input" for a new request to open `$EDITOR` (Windows: notepad / others: vi) for multi-line instructions.
+- **Load request from file**: Select "Load from file" to read a `.md` / `.txt` / `.html` requirements file. HTML is converted to plain text (tags, scripts and styles removed). PDF is not supported (loading one fails with an error).
 - **Save and restore selections**: Provider, model, phase, etc. are saved to `.ecosystem/wizard-defaults.json` and restored as defaults on next launch (`.env` / CLI args take priority).
 - **Execution count selection**: When running `Phase 1 + 2`, choose from "once / multiple / until limit" (available for both new requests and Issue runs).
 - **Task approval**: Preview the task list before creating GitHub Issues; approve (Enter) or cancel (c) (`TASK_APPROVAL=false` to disable; always skipped with `--auto`).
@@ -170,7 +171,7 @@ State is saved to `.ecosystem/state.json`.
 
 ## Writing Instruction Files
 
-For long instructions, passing them via `--instruction-file` is recommended to avoid encoding issues or shell escaping problems.
+For long instructions, passing them via `--instruction-file` is recommended to avoid encoding issues or shell escaping problems. `.md` / `.txt` / `.html` files are supported (HTML is converted to text; PDF is not supported).
 
 PowerShell:
 
