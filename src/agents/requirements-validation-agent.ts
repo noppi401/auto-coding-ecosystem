@@ -42,7 +42,17 @@ ${requirementsDoc}
 
 上記の要件定義書を評価軸に従って採点し、JSON形式で返してください。`;
 
-    const raw = await this.invoke(prompt, 4000);
+    let raw = await this.invoke(prompt, 4000);
+    try {
+      this.robustJsonParse(raw);
+    } catch (err) {
+      // 壊れた JSON（閉じ引用符の誤ったエスケープ等）で 0 点と誤判定しないよう、1 回だけ呼び直す
+      logger.warn('RequirementsValidationAgent returned invalid JSON; retrying once', String(err));
+      raw = await this.invoke(
+        ['Your previous response was not valid JSON.', 'Return ONLY one valid JSON object; escape every double quote inside strings and never escape a closing quote.', prompt].join('\n\n'),
+        4000
+      );
+    }
 
     try {
       const result = this.robustJsonParse(raw) as RequirementsValidationResult;
