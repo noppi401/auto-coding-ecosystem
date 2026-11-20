@@ -404,6 +404,8 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `IMPL_DOC_RELEVANCE` | `false` | Filter requirements/design docs to task-relevant sections during code generation. Enable with `true` |
 | `IMPL_DOC_MAX_CHARS` | `6000` | Max characters of requirements doc passed to CodingAgent when filtering |
 | `IMPL_DESIGN_DOC_MAX_CHARS` | `4000` | Max characters of design doc passed to CodingAgent when filtering |
+| `CODING_DOC_MAX_CHARS` | `40000` | Max characters of the requirements and design docs (each) passed to CodingAgent. The excess is truncated with a warning |
+| `REVIEW_DOC_MAX_CHARS` | `40000` | Max characters of the requirements and design docs (each) passed to ReviewAgent. The excess is truncated with a warning |
 | `PR_DIFF_MAX_CHARS` | `30000` | Max characters of PR diff for review/fix. Trimmed when exceeded. `0` to disable |
 | `PR_DIFF_EXCLUDE` | `package-lock.json,pnpm-lock.yaml,yarn.lock` | Files to exclude from PR diff (comma-separated) |
 | `GEMINI_API_KEY` | — | Gemini API key |
