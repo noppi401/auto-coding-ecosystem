@@ -1,5 +1,6 @@
 import { BaseAgent } from './base-agent.js';
 import { logger } from '../utils/logger.js';
+import { t } from '../utils/i18n.js';
 import type { LineRange, RequirementsCategory } from '../utils/requirements-split.js';
 
 export class RequirementsAgent extends BaseAgent {
@@ -104,7 +105,7 @@ Return ONLY a Markdown section (headings start at "###") that lists:
 1. Cross-cutting requirements that span categories (shared data, auth, error handling, non-functional requirements, etc.)
 2. Conflicts or inconsistencies between categories, and how to resolve each
 3. Dependencies and recommended implementation order between categories
-If there is nothing for an item, write "なし".
+If there is nothing for an item, write "${t('なし', 'None')}".
 
 ${preamble ? `SHARED CONTEXT:\n${preamble}\n\n` : ''}${categoryDocs.map(({ title, doc }) => `=== CATEGORY: ${title} ===\n${doc}`).join('\n\n')}`;
 
@@ -121,12 +122,12 @@ ${preamble ? `SHARED CONTEXT:\n${preamble}\n\n` : ''}${categoryDocs.map(({ title
   ): Promise<string> {
     await this.loadSystemPrompt();
 
-    logger.section('RequirementsAgent: 指摘事項に基づき要件定義を修正中');
+    logger.section(t('RequirementsAgent: 指摘事項に基づき要件定義を修正中', 'RequirementsAgent: revising the requirements based on the findings'));
 
     const issueLines = issues.map((i) => `- ${i}`).join('\n');
     const recLines = recommendations.map((r) => `- ${r}`).join('\n');
 
-    const prompt = `## 元のユーザーインストラクション
+    const prompt = t(`## 元のユーザーインストラクション
 ${instruction}
 
 ## 現在の要件定義書（修正前）
@@ -139,11 +140,24 @@ ${issueLines}
 ${recLines}
 
 上記の指摘事項と改善提案をすべて反映して要件定義書を修正してください。
-修正後の要件定義書のみをMarkdown形式で返してください。`;
+修正後の要件定義書のみをMarkdown形式で返してください。`, `## Original user instruction
+${instruction}
+
+## Current requirements (before revision)
+${currentDoc}
+
+## Findings from the validation agent
+${issueLines}
+
+## Recommendations
+${recLines}
+
+Revise the requirements to address every finding and recommendation above.
+Return only the revised requirements, in Markdown.`);
 
     const result = await this.invoke(prompt, 8000);
 
-    logger.info('RequirementsAgent: 修正完了');
+    logger.info(t('RequirementsAgent: 修正完了', 'RequirementsAgent: revision completed'));
     return result;
   }
 }

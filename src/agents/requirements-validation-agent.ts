@@ -1,5 +1,6 @@
 import { BaseAgent } from './base-agent.js';
 import { logger } from '../utils/logger.js';
+import { t } from '../utils/i18n.js';
 
 export interface ValidationCategoryResult {
   score: number;
@@ -32,15 +33,12 @@ export class RequirementsValidationAgent extends BaseAgent {
   ): Promise<RequirementsValidationResult> {
     await this.loadSystemPrompt();
 
-    logger.section('RequirementsValidationAgent: 要件妥当性を検証中');
+    logger.section(t('RequirementsValidationAgent: 要件妥当性を検証中', 'RequirementsValidationAgent: validating requirements'));
 
-    const prompt = `## ユーザーインストラクション
-${userInstruction}
-
-## 要件定義書
-${requirementsDoc}
-
-上記の要件定義書を評価軸に従って採点し、JSON形式で返してください。`;
+    const prompt = t(
+      `## ユーザーインストラクション\n${userInstruction}\n\n## 要件定義書\n${requirementsDoc}\n\n上記の要件定義書を評価軸に従って採点し、JSON形式で返してください。`,
+      `## User instruction\n${userInstruction}\n\n## Requirements\n${requirementsDoc}\n\nScore the requirements above against the evaluation criteria and return JSON.`
+    );
 
     let raw = await this.invoke(prompt, 4000);
     try {
@@ -56,25 +54,25 @@ ${requirementsDoc}
 
     try {
       const result = this.robustJsonParse(raw) as RequirementsValidationResult;
-      logger.info('RequirementsValidationAgent 完了', {
+      logger.info('RequirementsValidationAgent completed', {
         score: result.score,
         grade: result.grade,
       });
       return result;
     } catch (err) {
-      logger.error('RequirementsValidationAgent: JSONパース失敗', { raw: raw.substring(0, 300), err });
+      logger.error('RequirementsValidationAgent: failed to parse JSON', { raw: raw.substring(0, 300), err });
       return {
         score: 0,
         grade: 'D',
         categories: {
-          completeness: { score: 0, comment: 'パース失敗' },
-          clarity:      { score: 0, comment: 'パース失敗' },
-          testability:  { score: 0, comment: 'パース失敗' },
-          consistency:  { score: 0, comment: 'パース失敗' },
-          feasibility:  { score: 0, comment: 'パース失敗' },
+          completeness: { score: 0, comment: t('パース失敗', 'parse failed') },
+          clarity:      { score: 0, comment: t('パース失敗', 'parse failed') },
+          testability:  { score: 0, comment: t('パース失敗', 'parse failed') },
+          consistency:  { score: 0, comment: t('パース失敗', 'parse failed') },
+          feasibility:  { score: 0, comment: t('パース失敗', 'parse failed') },
         },
-        summary: `検証エージェントの出力パースに失敗しました: ${String(err)}`,
-        issues: ['出力フォーマットが不正'],
+        summary: t(`検証エージェントの出力パースに失敗しました: ${String(err)}`, `Failed to parse the validation agent output: ${String(err)}`),
+        issues: [t('出力フォーマットが不正', 'Invalid output format')],
         recommendations: [],
       };
     }

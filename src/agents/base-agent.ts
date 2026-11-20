@@ -9,6 +9,7 @@ import { killProcessTree } from '../utils/process-tree.js';
 import { parseClaudeStdout } from '../utils/claude-output.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
 import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
+import { t } from '../utils/i18n.js';
 import {
   LlmUsageLimitError,
   isClaudeUsageLimitMessage,
@@ -54,7 +55,9 @@ export class BaseAgent {
         'prompts',
         this.systemPromptPath
       );
-      this.systemPrompt = await fs.readFile(promptPath, 'utf-8');
+      // {{OUTPUT_LANGUAGE}}: 利用者が読む文章の言語（ACE_LANG で切り替え）
+      this.systemPrompt = (await fs.readFile(promptPath, 'utf-8'))
+        .split('{{OUTPUT_LANGUAGE}}').join(t('日本語', 'English'));
     } catch (err) {
       logger.error(
         `Failed to load system prompt for ${this.agentName}`,

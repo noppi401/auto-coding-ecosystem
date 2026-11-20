@@ -1,5 +1,6 @@
 import { BaseAgent } from './base-agent.js';
 import { logger } from '../utils/logger.js';
+import { t } from '../utils/i18n.js';
 
 export interface DesignValidationCategoryResult {
   score: number;
@@ -32,15 +33,12 @@ export class DesignValidationAgent extends BaseAgent {
   ): Promise<DesignValidationResult> {
     await this.loadSystemPrompt();
 
-    logger.section('DesignValidationAgent: 設計書妥当性を検証中');
+    logger.section(t('DesignValidationAgent: 設計書妥当性を検証中', 'DesignValidationAgent: validating design'));
 
-    const prompt = `## 要件定義書（参照用）
-${requirementsDoc}
-
-## 設計書
-${designDoc}
-
-上記の設計書を要件定義書と照らし合わせて評価軸に従って採点し、JSON形式で返してください。`;
+    const prompt = t(
+      `## 要件定義書（参照用）\n${requirementsDoc}\n\n## 設計書\n${designDoc}\n\n上記の設計書を要件定義書と照らし合わせて評価軸に従って採点し、JSON形式で返してください。`,
+      `## Requirements (for reference)\n${requirementsDoc}\n\n## Design\n${designDoc}\n\nScore the design above against the requirements using the evaluation criteria and return JSON.`
+    );
 
     let raw = await this.invoke(prompt, 4000);
     try {
@@ -56,25 +54,25 @@ ${designDoc}
 
     try {
       const result = this.robustJsonParse(raw) as DesignValidationResult;
-      logger.info('DesignValidationAgent 完了', {
+      logger.info('DesignValidationAgent completed', {
         score: result.score,
         grade: result.grade,
       });
       return result;
     } catch (err) {
-      logger.error('DesignValidationAgent: JSONパース失敗', { raw: raw.substring(0, 300), err });
+      logger.error('DesignValidationAgent: failed to parse JSON', { raw: raw.substring(0, 300), err });
       return {
         score: 0,
         grade: 'D',
         categories: {
-          requirementsCoverage: { score: 0, comment: 'パース失敗' },
-          architectureQuality:  { score: 0, comment: 'パース失敗' },
-          implementability:     { score: 0, comment: 'パース失敗' },
-          riskAwareness:        { score: 0, comment: 'パース失敗' },
-          maintainability:      { score: 0, comment: 'パース失敗' },
+          requirementsCoverage: { score: 0, comment: t('パース失敗', 'parse failed') },
+          architectureQuality:  { score: 0, comment: t('パース失敗', 'parse failed') },
+          implementability:     { score: 0, comment: t('パース失敗', 'parse failed') },
+          riskAwareness:        { score: 0, comment: t('パース失敗', 'parse failed') },
+          maintainability:      { score: 0, comment: t('パース失敗', 'parse failed') },
         },
-        summary: `検証エージェントの出力パースに失敗しました: ${String(err)}`,
-        issues: ['出力フォーマットが不正'],
+        summary: t(`検証エージェントの出力パースに失敗しました: ${String(err)}`, `Failed to parse the validation agent output: ${String(err)}`),
+        issues: [t('出力フォーマットが不正', 'Invalid output format')],
         recommendations: [],
       };
     }

@@ -94,6 +94,46 @@ describe('ACE_LANG による出力言語の切り替え', () => {
     }
   });
 
+  it.each([
+    [
+      'RequirementsValidationAgent',
+      async () => new (await import('../../agents/requirements-validation-agent.js')).RequirementsValidationAgent(),
+      (a: any) => a.validate('req', 'instruction'),
+    ],
+    [
+      'DesignValidationAgent',
+      async () => new (await import('../../agents/design-validation-agent.js')).DesignValidationAgent(),
+      (a: any) => a.validate('design', 'req'),
+    ],
+  ])('ACE_LANG=en のとき、%s は英語での回答を指示し、英語の依頼文を送る', async (_name, make, run) => {
+    process.env.ACE_LANG = 'en';
+    const agent: any = await make();
+    const invoke = vi.spyOn(agent, 'invoke').mockResolvedValue(
+      JSON.stringify({ score: 80, grade: 'A', categories: {}, summary: 'ok', issues: [], recommendations: [] })
+    );
+
+    await run(agent);
+
+    // 実際のプロンプトファイルを読み、言語の指定が English に置き換わっていること
+    expect(agent.systemPrompt).toContain('詳細なフィードバックをEnglishで返します');
+    expect(agent.systemPrompt).not.toContain('{{OUTPUT_LANGUAGE}}');
+    expect(JAPANESE.test(invoke.mock.calls[0][0] as string)).toBe(false);
+  });
+
+  it('既定では、検証エージェントは従来どおり日本語での回答を指示する', async () => {
+    delete process.env.ACE_LANG;
+    delete process.env.LANG;
+    const { RequirementsValidationAgent } = await import('../../agents/requirements-validation-agent.js');
+    const agent: any = new RequirementsValidationAgent();
+    vi.spyOn(agent, 'invoke').mockResolvedValue(
+      JSON.stringify({ score: 80, grade: 'A', categories: {}, summary: 'ok', issues: [], recommendations: [] })
+    );
+
+    await agent.validate('req', 'instruction');
+
+    expect(agent.systemPrompt).toContain('詳細なフィードバックを日本語で返します');
+  });
+
   it('ACE_LANG も LANG も未設定のときは、従来どおり日本語で出力する', async () => {
     delete process.env.ACE_LANG;
     delete process.env.LANG;

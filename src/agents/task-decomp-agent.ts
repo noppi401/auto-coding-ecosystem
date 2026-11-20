@@ -6,6 +6,7 @@ import { truncateWithWarning } from '../utils/truncate.js';
 import { randomUUID } from 'crypto';
 import { assignUniqueTestFiles } from '../utils/unique-test-files.js';
 import { moveSetupTaskFirst } from '../utils/setup-task-order.js';
+import { t } from '../utils/i18n.js';
 
 export class TaskDecompAgent extends BaseAgent {
   constructor() {
@@ -33,9 +34,9 @@ DESIGN:
 ${design}
 
 For each task, also estimate "complexity" as one of: "low", "medium", "high".
-- low: 設定変更・小さな表示修正など、影響範囲が局所的で判断が少ないタスク
-- medium: 複数ファイルにまたがる通常の機能追加・配線
-- high: アーキテクチャ変更・横断的な改修・正しさの要求が高いタスク
+- low: ${t('設定変更・小さな表示修正など、影響範囲が局所的で判断が少ないタスク', 'local changes with few decisions, such as config changes or small display fixes')}
+- medium: ${t('複数ファイルにまたがる通常の機能追加・配線', 'ordinary features or wiring that span several files')}
+- high: ${t('アーキテクチャ変更・横断的な改修・正しさの要求が高いタスク', 'architecture changes, cross-cutting changes, or tasks where correctness is critical')}
 
 Respond with JSON array of tasks with this structure:
 [
