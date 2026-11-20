@@ -495,6 +495,38 @@ describe('Orchestrator', () => {
       expect(committed).not.toContainEqual({ path: 'src/server.js', content: 'blind overwrite' });
     });
 
+    it('ReviewAgent と FixAgent に、変更ファイルが読み込むリポジトリ内のファイル（直接の依存先）も渡す', async () => {
+      // run 32: server.js と ui/html.js の食い違いを、レビューも修正も依存先を見られず見逃した
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([makeTask({ targetFiles: ['src/index.js'], testFiles: ['test/index.test.js'] })]);
+      const sources: Record<string, string> = {
+        'src/index.js': "const { createServer } = require('./server');",
+        'src/server.js': "const r = require('./ui/html'); r.renderHomePage(req, res);",
+        'src/ui/html.js': 'class UiRenderer { renderHomePage() { return "<html>"; } }',
+      };
+      mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+        Object.fromEntries(paths.filter((p) => p in sources).map((p) => [p, sources[p]]))
+      );
+      mockGitHubAgent.runCommandInWorktree.mockImplementation(async (_o: string, _r: string, _b: string, cmd: string) => ({
+        stdout: cmd === 'git' ? Object.keys(sources).join('\n') : '', stderr: '', exitCode: 0, timedOut: false,
+      }));
+      mockGitHubAgent.getPrDiff.mockResolvedValue(
+        'diff --git a/src/server.js b/src/server.js\n--- a/src/server.js\n+++ b/src/server.js\n@@ -1 +1 @@\n+x'
+      );
+      mockReviewAgent.reviewPr.mockResolvedValueOnce({
+        approved: false,
+        comments: [{ path: 'src/index.js', line: 1, body: 'GET / hangs', severity: 'blocking' }],
+        summary: 'fix',
+      });
+
+      await new Orchestrator(statePath).runPhase2();
+
+      expect(Object.keys(mockReviewAgent.reviewPr.mock.calls[0][5])).toContain('src/ui/html.js');
+      expect(Object.keys(mockFixAgent.fixCode.mock.calls[0][2])).toEqual(expect.arrayContaining(['src/server.js', 'src/ui/html.js']));
+    });
+
     it('CodingAgent に、設定ファイルの内容とリポジトリのファイル一覧をプロジェクトの文脈として渡す', async () => {
       const { StateManager } = await import('../state/manager.js');
       const sm = new StateManager(statePath);

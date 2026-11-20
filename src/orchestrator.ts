@@ -28,6 +28,7 @@ import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
 import { modifiedFilesInDiff } from './utils/modified-files.js';
 import { entryFileFromStartScript } from './utils/smoke-check.js';
 import { checkJsSyntax } from './utils/js-syntax-check.js';
+import { localDependencies } from './utils/local-deps.js';
 
 // レビュー・修正で常に参照させるプロジェクト設定（モジュール方式・ビルド・スクリプトの前提を誤解させないため）
 const PROJECT_CONFIG_FILES = ['package.json', 'tsconfig.json'];
@@ -367,6 +368,24 @@ export class Orchestrator {
       complexity: task.complexity || 'medium (default)',
       model,
     });
+  }
+
+  /**
+   * 与えたファイルが require / import で直接読み込む、リポジトリ内のファイルの内容を返す（1 段のみ）。
+   * （run 32: server.js と ui/html.js のインターフェースの食い違いを、レビューも修正も依存先を見られず見逃した）
+   */
+  private async _readLocalDependencies(
+    state: ProjectState,
+    task: Task,
+    files: Record<string, string>
+  ): Promise<Record<string, string>> {
+    const ls = await this.githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+    );
+    const tracked = (ls?.stdout ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+    const deps = localDependencies(Object.entries(files).map(([path, content]) => ({ path, content })), tracked);
+    if (deps.length === 0) return {};
+    return this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, deps);
   }
 
   /**
@@ -718,6 +737,12 @@ export class Orchestrator {
         state.githubOwner, state.githubRepo, task.branchName,
         [...new Set([...PROJECT_CONFIG_FILES, ...modifiedFilesInDiff(rawPrDiff)])]
       );
+      // 変更ファイル（新規を含む）が読み込む依存先も渡し、タスク間のインターフェースの食い違いを見つけられるようにする
+      const changedInDiff = [...rawPrDiff.matchAll(/^\+\+\+ b\/(.+)$/gm)].map((m) => m[1]);
+      const changedContents = await this.githubAgent.readFiles(
+        state.githubOwner, state.githubRepo, task.branchName, changedInDiff
+      );
+      Object.assign(modifiedFileContents, await this._readLocalDependencies(state, task, changedContents));
       const reviewResult =
         iteration === 1
           ? await reviewAgent.reviewPr(
@@ -880,6 +905,8 @@ export class Orchestrator {
         const currentFiles: { [path: string]: string } = changedPaths.length > 0
           ? await this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, changedPaths)
           : {};
+        // 依存先も見せる（原因が依存先とのインターフェースの食い違いにある場合に直せるように）
+        Object.assign(currentFiles, await this._readLocalDependencies(state, task, { ...currentFiles }));
         currentFiles['pr.diff'] = prDiff;
         lastFixInputDiff = prDiff;
 
