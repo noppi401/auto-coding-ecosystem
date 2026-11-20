@@ -59,6 +59,8 @@ function includesUsageLimitPattern(value: unknown): boolean {
   return [
     // LLM の通常応答にも適用されるため、機能名や数値に一致する語（billing / quota / 429 等）は使わない
     'usage limit',
+    // Claude の上限メッセージ "You've hit your limit · resets 2:50pm"（"usage" を含まない）
+    "you've hit your limit",
     'rate limit',
     'rate_limit',
     'limit reached',

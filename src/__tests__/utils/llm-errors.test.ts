@@ -62,6 +62,8 @@ describe('isClaudeUsageLimitMessage', () => {
     'Quota exceeded. Check your plan and billing details.',
     'rate_limit_error',
     "You've hit your usage limit. Try again at 3:00 PM.",
+    // run 35 で実際に返った Claude の上限メッセージ（"usage" を含まない）
+    "Claude error: You've hit your limit · resets 2:50pm (Asia/Tokyo)",
   ])('"%s" → true', (msg) => {
     expect(isClaudeUsageLimitMessage(msg)).toBe(true);
   });
