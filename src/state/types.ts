@@ -30,7 +30,8 @@ export type TaskCheckName =
   | 'coverage'
   | 'test-regression'
   | 'test-coverage-of-script'
-  | 'smoke';
+  | 'smoke'
+  | 'syntax';
 
 export type TaskCheckStatus = 'passed' | 'failed' | 'warning' | 'skipped';
 

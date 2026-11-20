@@ -27,6 +27,7 @@ import { findUnexecutedTestFiles } from './utils/unexecuted-tests.js';
 import { guardUnshownOverwrites } from './utils/fix-overwrite-guard.js';
 import { modifiedFilesInDiff } from './utils/modified-files.js';
 import { entryFileFromStartScript } from './utils/smoke-check.js';
+import { checkJsSyntax } from './utils/js-syntax-check.js';
 
 // レビュー・修正で常に参照させるプロジェクト設定（モジュール方式・ビルド・スクリプトの前提を誤解させないため）
 const PROJECT_CONFIG_FILES = ['package.json', 'tsconfig.json'];
@@ -366,6 +367,56 @@ export class Orchestrator {
       complexity: task.complexity || 'medium (default)',
       model,
     });
+  }
+
+  /**
+   * 追跡中の JS ファイルを `node --check` で構文チェックする。ゲートはコミットのたびに走るため、
+   * 実装（CodingAgent）の後にも修正（FixAgent）の後にも必ず行われる。
+   * 構文エラーはファイル名と行の情報つきで blocking にし、テスト出力に埋もれさせない。
+   * （run 31: FixAgent の編集で変数の二重宣言が入り、テストファイルごと読み込めなくなった）
+   */
+  private async _runSyntaxCheck(
+    githubAgent: GitHubAgent,
+    state: ProjectState,
+    task: Task,
+    comments: ReviewComment[]
+  ): Promise<void> {
+    const ls = await githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+    );
+    const jsPaths = (ls?.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => /\.[cm]?js$/i.test(l));
+    const contents = jsPaths.length > 0
+      ? await githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, jsPaths)
+      : {};
+    const files = Object.entries(contents).map(([path, content]) => ({ path, content }));
+    if (files.length === 0) {
+      await this._recordTaskCheck(task, { name: 'syntax', status: 'skipped', summary: 'JS ファイルが無いため構文チェックを未実行' });
+      return;
+    }
+
+    logger.info('Running JavaScript syntax check (node --check)...', `${files.length} files`);
+    const errors = await checkJsSyntax(files);
+    if (errors.length === 0) {
+      await this._recordTaskCheck(task, { name: 'syntax', status: 'passed', summary: `構文チェック通過（${files.length} ファイル）` });
+      return;
+    }
+
+    logger.warn('JavaScript syntax errors', errors.map((e) => e.path).join(', '));
+    await this._recordTaskCheck(task, {
+      name: 'syntax',
+      status: 'failed',
+      summary: `構文エラー（${errors.length} ファイル）`,
+      severity: 'blocking',
+      details: summarizeOutput(errors.map((e) => e.message).join('\n\n'), 1500),
+    });
+    for (const e of errors) {
+      comments.push({
+        path: e.path,
+        line: 1,
+        body: `**構文エラー**\n\n\`node --check\` が \`${e.path}\` の構文エラーを検出しました。このファイルを読み込めないため、テストも実行できません。構文エラーを直してください。\n\n\`\`\`\n${e.message}\n\`\`\``,
+        severity: 'blocking',
+      });
+    }
   }
 
   /**
@@ -1522,6 +1573,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         'bun.lockb',
       ]
     );
+
+    // 実装・修正のたびに、テストより先に JS の構文を確かめる
+    await this._runSyntaxCheck(githubAgent, state, task, comments);
+
     if (pkgFiles['package.json']) {
       let pkg: any;
       try { pkg = JSON.parse(pkgFiles['package.json']); } catch { pkg = null; }

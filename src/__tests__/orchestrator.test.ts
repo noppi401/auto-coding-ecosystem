@@ -769,6 +769,43 @@ describe('Orchestrator', () => {
       );
     });
 
+    describe('JS の構文チェック（node --check）を、実装・修正のたびにゲートで必ず行う', () => {
+      // run 31: FixAgent の編集で変数の二重宣言が入り、テストファイルごと読み込めなくなった
+      const runGate = async (sources: Record<string, string>) => {
+        process.env.BUILD_CHECK_ENABLED = 'true';
+        const { orchestrator, state, task } = await prepareTaskState();
+        mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+          Object.fromEntries(paths.filter((p) => p in sources).map((p) => [p, sources[p]]))
+        );
+        mockGitHubAgent.runCommandInWorktree.mockImplementation(async (_o: string, _r: string, _b: string, cmd: string) => ({
+          stdout: cmd === 'git' ? Object.keys(sources).join('\n') : '',
+          stderr: '', exitCode: 0, timedOut: false,
+        }));
+        const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+        const { StateManager } = await import('../state/manager.js');
+        const saved = await new StateManager(statePath).load();
+        return { comments, check: saved?.tasks[0].lastChecks?.find((c) => c.name === 'syntax') };
+      };
+
+      it('構文エラーのある JS ファイルを、ファイル名とエラー内容つきで blocking にする', async () => {
+        const { comments, check } = await runGate({
+          'src/server.js': 'module.exports = 1;\n',
+          'test/bootstrap.test.js': 'const { status } = a();\nconst { status } = b();\n',
+          'README.md': 'not js',
+        });
+        const blocking = comments.filter((c: any) => c.severity === 'blocking' && c.body.includes('構文エラー'));
+        expect(blocking.map((c: any) => c.path)).toEqual(['test/bootstrap.test.js']);
+        expect(blocking[0].body).toMatch(/already been declared/);
+        expect(check?.status).toBe('failed');
+      });
+
+      it('すべて正しければ passed', async () => {
+        const { comments, check } = await runGate({ 'src/server.js': 'module.exports = 1;\n' });
+        expect(comments.filter((c: any) => c.body.includes('構文エラー'))).toHaveLength(0);
+        expect(check?.status).toBe('passed');
+      });
+    });
+
     describe('package.json（有効な test script）が無くてもテストを実行する', () => {
       // run 30: package.json を作るタスクが 10 番目で、タスク 1〜9 はテストを一度も実行せずにマージされた
       const runGate = async (pkgFiles: Record<string, string>, tracked: string[], nodeTestExit: number) => {
