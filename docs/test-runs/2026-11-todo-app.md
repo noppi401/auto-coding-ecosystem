@@ -143,7 +143,7 @@ APIは GET/POST /api/todos, PATCH/DELETE /api/todos/:id でメモリ上に保持
 
 ## 残っている課題
 
-- **設計書が途中で切れる**: 設計書（約 18.5k 文字）は、CodingAgent に 4000 文字、ReviewAgent に 3000 文字までしか渡りません。`IMPL_DOC_RELEVANCE=true` にすると、タスクに関係する節だけを渡せますが、今回は使っていません。
+- **設計書が途中で切れる**: 設計書（約 18.5k 文字）は、CodingAgent に 4000 文字、ReviewAgent に 3000 文字までしか渡りません。`IMPL_DOC_RELEVANCE=true` にすると、タスクに関係する節だけを渡せますが、今回は使っていません。（run 35 の後、既定で全文〔最大 40,000 文字〕を渡すように修正）
 - **カバレッジを測っていない**: カバレッジの確認は `COVERAGE_CHECK_ENABLED=true` のときだけ動きます。今回は有効にしていません。
 - **レビューの承認**: 自分が作った PR は GitHub の仕様で正式に承認できないため、承認の内容をコメントとして残しています。
 - **利用上限**: 長い実行では Claude の利用上限に達することがあります。達すると Phase 2 はその場で止まり、`npm run dev -- phase2 --retry-failed` で続きから再開できます。

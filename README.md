@@ -402,6 +402,8 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `IMPL_DOC_RELEVANCE` | `false` | コード生成時に要件・設計書をタスク関連部分へ絞り込む（トークン削減）。`true` で有効化 |
 | `IMPL_DOC_MAX_CHARS` | `6000` | 絞り込み時に CodingAgent へ渡す要件定義の最大文字数 |
 | `IMPL_DESIGN_DOC_MAX_CHARS` | `4000` | 絞り込み時に CodingAgent へ渡す設計書の最大文字数 |
+| `CODING_DOC_MAX_CHARS` | `40000` | CodingAgent へ渡す要件定義・設計書の最大文字数（それぞれ）。超えた分は警告を出して切る |
+| `REVIEW_DOC_MAX_CHARS` | `40000` | ReviewAgent へ渡す要件定義・設計書の最大文字数（それぞれ）。超えた分は警告を出して切る |
 | `PR_DIFF_MAX_CHARS` | `30000` | レビュー/修正に渡す PR diff の最大文字数。超過時はトリミング。`0` で無効化 |
 | `PR_DIFF_EXCLUDE` | `package-lock.json,pnpm-lock.yaml,yarn.lock` | PR diff から除外するファイル名（カンマ区切り） |
 | `GEMINI_API_KEY` | なし | Gemini API キー |

@@ -157,6 +157,8 @@ export class CodingAgent extends BaseAgent {
     const chunkNote = chunkInfo
       ? `NOTE: This is chunk ${chunkInfo.current} of ${chunkInfo.total} for this task. Generate ONLY the files listed in TARGET FILES below.\n\n`
       : '';
+    // 要件定義・設計書は、先頭だけでは後半の設計が実装に反映されないため、通常は全文を渡す。
+    const docMax = Number(process.env.CODING_DOC_MAX_CHARS || '40000');
 
     const prompt = `${chunkNote}Generate code for the following task:
 
@@ -164,10 +166,10 @@ TASK: ${task.title}
 SUMMARY: ${task.summary}
 
 REQUIREMENTS (excerpt):
-${truncateWithWarning(requirementsDoc, 6000, 'CodingAgent requirements (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
+${truncateWithWarning(requirementsDoc, docMax, 'CodingAgent requirements (raise CODING_DOC_MAX_CHARS to send more)')}
 
 DESIGN (excerpt):
-${truncateWithWarning(designDoc, 4000, 'CodingAgent design (set IMPL_DOC_RELEVANCE=true to send task-relevant sections)')}
+${truncateWithWarning(designDoc, docMax, 'CodingAgent design (raise CODING_DOC_MAX_CHARS to send more)')}
 
 ${this.projectContext ? `PROJECT CONTEXT (read-only reference; do not return these files unless the task requires changing them).
 Follow the module system, language and test conventions this shows (e.g. no "type": "module" in package.json means CommonJS: use require/module.exports), and reuse existing helpers:

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ReviewAgent } from '../../agents/review-agent.js';
 import { describeOtherTasks } from '../../utils/other-tasks.js';
 import { Task } from '../../state/types.js';
@@ -78,6 +78,41 @@ describe('ReviewAgent: 他タスクの計画をレビューに渡す', () => {
 
     const prompt = invoke.mock.calls[0][0] as string;
     expect(prompt).not.toMatch(/OTHER PLANNED TASKS/);
+  });
+});
+
+describe('ReviewAgent: 要件定義・設計書を渡す量', () => {
+  let agent: ReviewAgent;
+  let invoke: ReturnType<typeof vi.fn>;
+  const task = makeTask('t1', 'Init', ['package.json']);
+  // run 35 の設計書（約 18.5k 文字）と同程度。末尾の印が届くかで全文かどうかを見る
+  const bigDoc = (label: string) => `## ${label}\n` + 'x'.repeat(18000) + `\nEND_OF_${label}`;
+
+  beforeEach(() => {
+    agent = new ReviewAgent();
+    vi.spyOn(agent as any, 'loadSystemPrompt').mockResolvedValue(undefined);
+    invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(APPROVED) as any;
+  });
+  afterEach(() => {
+    delete process.env.REVIEW_DOC_MAX_CHARS;
+  });
+
+  it('既定では、約 18k 文字の要件定義・設計書を末尾まで渡す', async () => {
+    await agent.reviewPr(task, 'diff', bigDoc('REQ'), bigDoc('DESIGN'));
+
+    const prompt = invoke.mock.calls[0][0] as string;
+    expect(prompt).toContain('END_OF_REQ');
+    expect(prompt).toContain('END_OF_DESIGN');
+  });
+
+  it('REVIEW_DOC_MAX_CHARS を指定すると、その文字数で切る', async () => {
+    process.env.REVIEW_DOC_MAX_CHARS = '1000';
+    await agent.reviewPr(task, 'diff', bigDoc('REQ'), bigDoc('DESIGN'));
+
+    const prompt = invoke.mock.calls[0][0] as string;
+    expect(prompt).not.toContain('END_OF_REQ');
+    expect(prompt).not.toContain('END_OF_DESIGN');
+    expect(prompt).toContain('## DESIGN');
   });
 });
 

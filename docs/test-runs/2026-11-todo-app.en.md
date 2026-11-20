@@ -145,7 +145,7 @@ We generated the app from an empty repository about 35 times with this request. 
 
 ## Remaining Issues
 
-- **Design document is truncated**: the design document (about 18.5k characters) is cut to 4,000 characters for CodingAgent and 3,000 for ReviewAgent. Setting `IMPL_DOC_RELEVANCE=true` sends only the sections relevant to the task, but it was not used in this run.
+- **Design document is truncated**: the design document (about 18.5k characters) is cut to 4,000 characters for CodingAgent and 3,000 for ReviewAgent. Setting `IMPL_DOC_RELEVANCE=true` sends only the sections relevant to the task, but it was not used in this run. (Fixed after run 35: the full text, up to 40,000 characters, is now sent by default.)
 - **Coverage is not measured**: the coverage check only runs with `COVERAGE_CHECK_ENABLED=true`, which was not enabled in this run.
 - **Review approval**: GitHub does not allow approving your own PR, so the approval is left as a comment.
 - **Usage limits**: long runs can hit Claude's usage limit. Phase 2 then stops where it is and can be resumed with `npm run dev -- phase2 --retry-failed`.

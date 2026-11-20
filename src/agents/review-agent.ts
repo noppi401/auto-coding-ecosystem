@@ -3,8 +3,6 @@ import { Task, ReviewResult, ReviewComment } from '../state/types.js';
 import { logger } from '../utils/logger.js';
 import { truncateWithWarning } from '../utils/truncate.js';
 
-const REQ_DOC_MAX = 4000;
-const DESIGN_DOC_MAX = 3000;
 const DIFF_MAX = 20000;
 const FILE_CONTENTS_MAX = 40000;
 
@@ -58,16 +56,19 @@ export class ReviewAgent extends BaseAgent {
 
     logger.section(`ReviewAgent: Reviewing PR for "${task.title}"`);
 
+    // 要件定義・設計書は、先頭だけだと後半の設計に沿っているか判定できないため、通常は全文を渡す。
+    const docMax = Number(process.env.REVIEW_DOC_MAX_CHARS || '40000');
+
     const prompt = `Review the following PR for the task:
 
 TASK: ${task.title}
 SUMMARY: ${task.summary}
 
 REQUIREMENTS (excerpt):
-${truncateWithWarning(requirementsDoc, REQ_DOC_MAX, 'ReviewAgent requirements')}
+${truncateWithWarning(requirementsDoc, docMax, 'ReviewAgent requirements (raise REVIEW_DOC_MAX_CHARS to send more)')}
 
 DESIGN (excerpt):
-${truncateWithWarning(designDoc, DESIGN_DOC_MAX, 'ReviewAgent design')}
+${truncateWithWarning(designDoc, docMax, 'ReviewAgent design (raise REVIEW_DOC_MAX_CHARS to send more)')}
 
 ${otherTasksSection(otherTasksContext)}${fileContentsSection(fileContents)}PR DIFF (first ${DIFF_MAX} chars):
 ${prDiff.substring(0, DIFF_MAX)}

@@ -36,6 +36,31 @@ describe('CodingAgent.generateCode: 既存ファイルと他タスクの扱い',
     expect(prompt).toContain('const line799 = 799;');
   });
 
+  it('要件定義・設計書は、既定では約 18k 文字でも末尾まで渡し、CODING_DOC_MAX_CHARS 指定時はその文字数で切る', async () => {
+    // run 35 の設計書（約 18.5k 文字）と同程度。末尾の印が届くかで全文かどうかを見る
+    const bigDoc = (label: string) => `## ${label}\n` + 'x'.repeat(18000) + `\nEND_OF_${label}`;
+    const agent = new CodingAgent();
+    const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      okResponse([{ path: 'server.js', lines: ['x'] }, { path: 'server.test.js', lines: ['y'] }])
+    );
+
+    await agent.generateCode(makeTask(), bigDoc('REQ'), bigDoc('DESIGN'), {});
+    const fullPrompt = invoke.mock.calls[0][0] as string;
+    expect(fullPrompt).toContain('END_OF_REQ');
+    expect(fullPrompt).toContain('END_OF_DESIGN');
+
+    process.env.CODING_DOC_MAX_CHARS = '1000';
+    try {
+      await agent.generateCode(makeTask(), bigDoc('REQ'), bigDoc('DESIGN'), {});
+    } finally {
+      delete process.env.CODING_DOC_MAX_CHARS;
+    }
+    const cappedPrompt = invoke.mock.calls[1][0] as string;
+    expect(cappedPrompt).not.toContain('END_OF_REQ');
+    expect(cappedPrompt).not.toContain('END_OF_DESIGN');
+    expect(cappedPrompt).toContain('## DESIGN');
+  });
+
   it('既存ファイルがある場合、既存のコードとテストを保持して追加するよう指示する', async () => {
     const agent = new CodingAgent();
     const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
