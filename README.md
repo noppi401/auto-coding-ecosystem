@@ -4,7 +4,17 @@
 
 Auto Coding Ecosystem、略称 **ACE（エース）** は、Claude / Codex / GitHub CLI を使い、要件定義、設計、タスク分解、実装、レビュー、修正、PR 作成、マージまでを支援するローカル実行型の自動コーディングパイプラインです。
 
-> 初めて触る方は、仕組みと使い方を図解した HTML ガイド [`docs/guide.html`](docs/guide.html) をブラウザで開いてください。
+> 初めて触る方は、仕組みと使い方を図解した [HTML ガイド](https://noppi401.github.io/auto-coding-ecosystem/guide.html) をご覧ください。
+
+**検証結果**: 依頼文 1 つから、空のリポジトリに ToDo Web アプリを完成させました。人の手による修正はありません。
+
+- 8 タスクを 8 本の PR にして、すべてマージ
+- テスト 200 件がすべて成功
+- 所要時間は約 1 時間 28 分、費用は $8.24（Claude CLI の見積もり）
+
+詳しくは [動作検証レポート](docs/test-runs/2026-11-todo-app.md) を参照してください。
+
+![ACE が生成した ToDo アプリ](docs/test-runs/run35-todo-app.png)
 
 ## スクリーンショット
 
@@ -521,4 +531,4 @@ npm run start:all
 
 ## ライセンス
 
-MIT
+[Apache License 2.0](LICENSE)
