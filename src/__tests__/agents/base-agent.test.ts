@@ -338,6 +338,25 @@ describe('BaseAgent', () => {
       expect(result.files[0].path).toBe('src/storage/todos.js');
     });
 
+    it('前置きに ```js などの別言語のコードブロックがあっても、後ろの ```json ブロックの JSON を取り出す（run 35 の FixAgent 応答）', () => {
+      const input = [
+        'The test most likely destructures the class:',
+        '',
+        '```js',
+        "const { TodoStore } = require('../store');",
+        '```',
+        '',
+        'Currently `store.js` exports only the singleton instance.',
+        '',
+        '```json',
+        '{"files": [{"path": "store.js", "hunks": []}], "commitMessage": "fix: export TodoStore class"}',
+        '```',
+      ].join('\n');
+      const result = (agent as any).robustJsonParse(input);
+      expect(result.commitMessage).toBe('fix: export TodoStore class');
+      expect(result.files[0].path).toBe('store.js');
+    });
+
     it('二重エスケープされた JSON をパースできる', () => {
       const input = '{\\"key\\": \\"value\\"}';
       const result = (agent as any).robustJsonParse(input);

@@ -637,8 +637,9 @@ export class BaseAgent {
       }
 
       // 2c. フォールバック: 前置きの説明文に { } がある（例: `{ createTodoStorage }`）と上の切り出しは失敗する。
-      // コードブロックの中身を順にパースし、最初に成功したものを採用する
-      for (const block of input.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/g)) {
+      // コードブロックの中身を順にパースし、最初に成功したものを採用する。
+      // 開きフェンスは ```js 等の任意の言語名を受け付ける（json だけだと ```js の閉じを開きと誤認し、対応がずれる）
+      for (const block of input.matchAll(/```[\w-]*[ \t]*\r?\n([\s\S]*?)\r?\n?```/g)) {
         try {
           return JSON.parse(block[1].trim());
         } catch { /* 次のブロックへ */ }
