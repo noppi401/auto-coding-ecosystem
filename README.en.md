@@ -146,24 +146,35 @@ The Orchestrator calls each agent in sequence; state is saved to `.ecosystem/sta
 2. **RequirementsValidationAgent** scores the requirements; if below the threshold, a correction loop runs (`.ecosystem/requirements-validation.md`).
 3. **DesignAgent** generates a design document from the requirements.
 4. **DesignValidationAgent** scores the design; if below the threshold, a correction loop runs (`.ecosystem/design-validation.md`).
-5. **TaskDecompAgent** decomposes the full requirements and design docs into implementable tasks (each task is assigned a `complexity` rating and a `testFiles` list specifying which test files must be written).
-6. After task-list approval (`TASK_APPROVAL`), **GitHubAgent** creates a GitHub Issue for each task.
+5. **TaskDecompAgent** decomposes the full requirements and design docs into implementable tasks (each task is assigned a `complexity` rating and its own small test file in `testFiles`). If the task that creates `package.json` touches only config files, it is moved to the front.
+6. An **acceptance task** (acceptance tests and smoke check) is automatically appended after the decomposed tasks (disable with `ACCEPTANCE_TASK_ENABLED=false`).
+7. After task-list approval (`TASK_APPROVAL`), **GitHubAgent** creates a GitHub Issue for each task.
 
 When modifying an existing repository, **RepoContextSummaryAgent** summarizes the repository context once and reuses it in steps 1, 3, and 5 to reduce token usage (`REPO_CONTEXT_SUMMARY`).
+
+Claude is called through `claude -p` with tools disabled, and its result is taken only as JSON text (so the model cannot write directly into the working folder or operate external services). If it does not respond after starting, this is detected and the call is retried (`CLAUDE_STARTUP_TIMEOUT_MS` / `CLAUDE_STARTUP_RETRIES`).
 
 ### Phase 2: Implementation (Per-task Coding Loop)
 
 Tasks are processed one at a time, always maintaining "one active Issue/PR at a time."
 
 1. **GitHubAgent** creates a branch.
-2. **CodingAgent** generates code and test files (automatically selects the implementation model based on task complexity: `TASK_MODEL_ROUTING`). If no test files are produced, it automatically retries to ensure tests are generated.
+2. **CodingAgent** generates code and test files (automatically selects the implementation model based on task complexity: `TASK_MODEL_ROUTING`). It sees the config files (`package.json` / `tsconfig.json`), the file list, the plan for the other tasks, and the current full content of its target files, then outputs new files as arrays of lines and changes to existing files as diffs (hunks). If no test files are produced, it automatically retries to ensure tests are generated.
+   - For the acceptance task, **AcceptanceTestAgent** writes HTTP-level acceptance tests from the requirements alone, without seeing the implementation (the tests start the real app).
 3. **GitHubAgent** commits and creates a PR, then comments the PR link on the Issue.
 4. Review loop:
-   - Build / type-check / test (`tsc --noEmit` / `npm test`) run in a worktree (deterministic gate). On test failure, the structured failure details (file, test name, error) are passed to **FixAgent**.
-   - The PR diff is scanned for test deletions or `.skip` additions; any such changes are blocked as a deterministic guard against **FixAgent** disabling tests.
-   - **ReviewAgent** (optionally + **CodexAgent** for independent review: `CODEX_REVIEW_ENABLED`) evaluates the PR diff.
-   - If there are blocking findings, **FixAgent** makes a fix commit → re-review (up to `MAX_REVIEW_ITERATIONS` times).
+   - The deterministic gate runs in a worktree, after every implementation and every fix:
+     - Type check (`tsc --noEmit`, when `tsconfig.json` exists) and JS syntax check (`node --check`)
+     - Dependency install and `npm test`. Without `package.json` or a test script, test files are run directly with `node --test`
+     - Detection of a test script that runs only some of the test files
+     - Acceptance task only: a smoke check (start with `npm start` on a given PORT and expect `GET /` to return 2xx/3xx) and detection of source files that the entry file never loads
+     - On test failure, the structured failure details (file, test name, error) are passed to **FixAgent**
+   - The PR diff is scanned for deleted test files, added `.skip`, and a net decrease in test cases or assertions; any such change is blocked as a deterministic guard against **FixAgent** removing tests.
+   - **ReviewAgent** (optionally + **CodexAgent** for independent review: `CODEX_REVIEW_ENABLED`) evaluates the PR diff. It also gets the full content of changed files, the config files, and the repository files that the changed files import, so it can check that calls match what they call.
+   - If there are blocking findings, **FixAgent** makes a fix commit → re-review (up to `MAX_REVIEW_ITERATIONS` times). If FixAgent tries to overwrite an existing file it was not shown, a guard blocks it and calls it once more with that file shown.
 5. Once approved, **GitHubAgent** merges → closes the Issue → syncs the verification worktree.
+
+A record of an actual run that generated a ToDo app (run time, cost, screenshot) is in [`docs/test-runs/2026-11-todo-app.en.md`](docs/test-runs/2026-11-todo-app.en.md).
 
 PR diffs for review are capped and trimmed at `PR_DIFF_MAX_CHARS`; requirements/design docs passed to code generation can be filtered to task-relevant sections via `IMPL_DOC_RELEVANCE` (both reduce token usage).
 
@@ -371,6 +382,7 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `BASE_BRANCH` | `main` | Base branch for PRs |
 | `MAX_REVIEW_ITERATIONS` | `5` | Maximum review-and-fix iterations |
 | `TASK_APPROVAL` | `true` | Preview and approve task list before creating Issues (always skipped with `--auto`) |
+| `ACCEPTANCE_TASK_ENABLED` | `true` | Automatically append the acceptance task (acceptance tests and smoke check) after decomposition. `false` to disable |
 | `PLANNING_LLM_PROVIDER` | `claude` | LLM provider for Phase 1 |
 | `IMPLEMENTATION_LLM_PROVIDER` | `claude` | LLM provider for implementation and fixing |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Common Claude model |
@@ -399,6 +411,10 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent-specific timeout. Falls back to `AGENT_COMMAND_TIMEOUT_MS`, then `900000` |
 | `RESUME_AGENT_SESSIONS` | `false` | Use Claude session continuation |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent command timeout (ms). CodexAgent uses it when `CODEX_TIMEOUT_MS` is unset |
+| `CLAUDE_STARTUP_TIMEOUT_MS` | `120000` | How long to wait for the Claude CLI's first output after starting. The call is retried when exceeded |
+| `CLAUDE_STARTUP_RETRIES` | `2` | How many times to retry when Claude does not respond after starting |
+| `CODING_CURRENT_FILE_MAX_CHARS` | `60000` | Max characters per existing file passed to CodingAgent |
+| `FIX_CURRENT_FILE_MAX_CHARS` | `60000` | Max characters per existing file passed to FixAgent |
 | `REPO_CONTEXT_SUMMARY` | `false` | On modify, summarize repository context once and reuse across requirements/design/task decomposition to reduce tokens. Enable with `true` |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | Max characters of context passed to the summary agent |
 | `REQ_SPLIT_MODE` | `auto` | Per-category requirements generation. `auto` (by size) / `always` / `never` |

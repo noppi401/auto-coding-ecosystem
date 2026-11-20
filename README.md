@@ -144,24 +144,35 @@ Links:
 2. **RequirementsValidationAgent** が要件をスコア評価し、閾値未満なら修正ループ（`.ecosystem/requirements-validation.md`）。
 3. **DesignAgent** が要件から設計書を生成。
 4. **DesignValidationAgent** が設計をスコア評価し、閾値未満なら修正ループ（`.ecosystem/design-validation.md`）。
-5. **TaskDecompAgent** が要件定義・設計書の全文から実装可能なタスクへ分解（各タスクに複雑度 `complexity` と、書くべきテストファイル一覧 `testFiles` を付与）。
-6. タスク一覧を承認（`TASK_APPROVAL`）後、**GitHubAgent** が各タスクの Issue を起票。
+5. **TaskDecompAgent** が要件定義・設計書の全文から実装可能なタスクへ分解（各タスクに複雑度 `complexity` と、そのタスク専用の小さなテストファイル `testFiles` を付与）。`package.json` を作るタスクが設定ファイルだけを扱う場合は、先頭に並べ替える。
+6. 分解したタスクの最後に、**受け入れタスク**（受け入れテストと起動確認）を自動で追加する（`ACCEPTANCE_TASK_ENABLED=false` で無効化）。
+7. タスク一覧を承認（`TASK_APPROVAL`）後、**GitHubAgent** が各タスクの Issue を起票。
 
 既存リポジトリ改修時は **RepoContextSummaryAgent** がリポジトリコンテキストを一度だけ要約し、上記 1・3・5 で再利用してトークンを抑えます（`REPO_CONTEXT_SUMMARY`）。
+
+Claude はツールを無効にした `claude -p` で呼び出し、結果は JSON のテキストとしてだけ受け取ります（モデルが作業フォルダへ直接書き込んだり、外部サービスを操作したりしないため）。起動後に反応がない場合は検知して呼び直します（`CLAUDE_STARTUP_TIMEOUT_MS` / `CLAUDE_STARTUP_RETRIES`）。
 
 ### Phase 2: 実装（タスクごとのコーディングループ）
 
 タスクを 1 件ずつ、常に「アクティブな Issue/PR は 1 つ」を保ちながら処理します。
 
 1. **GitHubAgent** がブランチを作成。
-2. **CodingAgent** がコードとテストファイルを生成（タスクの複雑度に応じて実装モデルを自動選択: `TASK_MODEL_ROUTING`）。テストファイルが出力されなかった場合はリトライして確実に生成する。
+2. **CodingAgent** がコードとテストファイルを生成（タスクの複雑度に応じて実装モデルを自動選択: `TASK_MODEL_ROUTING`）。設定ファイル（`package.json` / `tsconfig.json`）・ファイル一覧・他タスクの計画と、対象ファイルの現在の全文を見たうえで、新規ファイルは行の配列、既存ファイルは差分（hunk）で出力する。テストファイルが出力されなかった場合はリトライして確実に生成する。
+   - 受け入れタスクでは、代わりに **AcceptanceTestAgent** が、実装を見ずに要件だけから HTTP レベルの受け入れテストを書く（実際にアプリを起動して確かめる）。
 3. **GitHubAgent** がコミットし PR を作成、Issue に PR リンクをコメント。
 4. レビューループ:
-   - ビルド/型チェック/テスト（`tsc --noEmit` / `npm test`）を worktree で実行（決定論ゲート）。テスト失敗時は失敗ファイル・テスト名・エラーを構造化して **FixAgent** へ渡す。
-   - PR diff に対してテストファイルの削除・`.skip` 追加などの無効化を自動検出し、blocking としてブロック（**FixAgent** によるテスト消去を防止）。
-   - **ReviewAgent**（＋任意で **CodexAgent** の独立レビュー: `CODEX_REVIEW_ENABLED`）が PR diff を評価。
-   - blocking 指摘があれば **FixAgent** が修正コミット → 再レビュー（最大 `MAX_REVIEW_ITERATIONS` 回）。
+   - 決定論ゲートを worktree で実行する。実装と修正のたびに必ず通る。
+     - 型チェック（`tsc --noEmit`、`tsconfig.json` がある場合）と JS の構文チェック（`node --check`）
+     - 依存インストールと `npm test`。`package.json` や test script がなければ、`node --test` でテストファイルを直接実行する
+     - test script が一部のテストファイルしか実行していないことの検出
+     - 受け入れタスクのみ: 起動確認（`npm start` で PORT を渡して起動し、`GET /` が 2xx/3xx を返すか）と、起動ファイルからどこにも読み込まれていないソースファイルの検出
+     - テスト失敗時は、失敗ファイル・テスト名・エラーを構造化して **FixAgent** へ渡す
+   - PR diff から、テストファイルの削除・`.skip` 追加・テストケースやアサーションの純減を自動検出し、blocking としてブロック（**FixAgent** によるテスト消去を防止）。
+   - **ReviewAgent**（＋任意で **CodexAgent** の独立レビュー: `CODEX_REVIEW_ENABLED`）が PR diff を評価。変更ファイルの全文・設定ファイル・変更ファイルが読み込むリポジトリ内のファイルも渡し、呼び出し先との食い違いも確認する。
+   - blocking 指摘があれば **FixAgent** が修正コミット → 再レビュー（最大 `MAX_REVIEW_ITERATIONS` 回）。FixAgent が見ていない既存ファイルを上書きしようとした場合はガードで止め、そのファイルを見せて 1 回だけ呼び直す。
 5. 承認されたら **GitHubAgent** がマージ → Issue クローズ → 確認用 worktree を同期。
+
+実際に ToDo アプリを生成させた検証の記録（実行時間・費用・スクリーンショット）は [`docs/test-runs/2026-11-todo-app.md`](docs/test-runs/2026-11-todo-app.md) にあります。
 
 レビュー時の PR diff は `PR_DIFF_MAX_CHARS` で上限・トリミングされ、コード生成へ渡す要件/設計書は `IMPL_DOC_RELEVANCE` でタスク関連部分に絞り込めます（いずれもトークン削減）。
 
@@ -369,6 +380,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `BASE_BRANCH` | `main` | PR のベースブランチ |
 | `MAX_REVIEW_ITERATIONS` | `5` | レビューと修正の最大反復回数 |
 | `TASK_APPROVAL` | `true` | 対話実行時、タスク分解結果を GitHub Issue 起票前にプレビュー・承認する。`false` で無効化（`--auto` 時は常にスキップ） |
+| `ACCEPTANCE_TASK_ENABLED` | `true` | タスク分解の最後に受け入れタスク（受け入れテストと起動確認）を自動追加する。`false` で無効化 |
 | `PLANNING_LLM_PROVIDER` | `claude` | Phase 1 系の LLM provider |
 | `IMPLEMENTATION_LLM_PROVIDER` | `claude` | 実装、修正系の LLM provider |
 | `CLAUDE_MODEL` | `claude-haiku-4-5-20251001` | Claude CLI の共通モデル |
@@ -397,6 +409,10 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent 専用のタイムアウト。未指定時は `AGENT_COMMAND_TIMEOUT_MS`、さらに未指定なら `900000` を使う |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent 系コマンドのタイムアウト。`CODEX_TIMEOUT_MS` 未指定時は CodexAgent もこの値を使う |
+| `CLAUDE_STARTUP_TIMEOUT_MS` | `120000` | Claude CLI の起動後、最初の出力を待つ時間。超えたら呼び直す |
+| `CLAUDE_STARTUP_RETRIES` | `2` | 起動後に反応がない場合に呼び直す回数 |
+| `CODING_CURRENT_FILE_MAX_CHARS` | `60000` | CodingAgent に渡す既存ファイル 1 件あたりの最大文字数 |
+| `FIX_CURRENT_FILE_MAX_CHARS` | `60000` | FixAgent に渡す既存ファイル 1 件あたりの最大文字数 |
 | `REPO_CONTEXT_SUMMARY` | `false` | modify 時にリポジトリコンテキストを一度だけ要約し、要件/設計/タスク分解で再利用してトークンを削減する。`true` で有効化 |
 | `REPO_CONTEXT_SUMMARY_INPUT_MAX_CHARS` | `40000` | 要約エージェントに渡すコンテキストの最大文字数 |
 | `REQ_SPLIT_MODE` | `auto` | 要件定義のカテゴリ分割。`auto`（文字数で判断）/ `always` / `never` |
