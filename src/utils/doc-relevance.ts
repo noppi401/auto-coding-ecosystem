@@ -1,4 +1,5 @@
 import type { Task } from '../state/types.js';
+import { t } from './i18n.js';
 
 /**
  * Issue #8: 要件定義・設計書をタスク関連部分に絞り込む決定論的抽出。
@@ -127,7 +128,7 @@ export function extractRelevantDoc(
   const ordered = selected.sort((a, b) => a.index - b.index).map((s) => s.text);
   const omitted = rawSections.length - ordered.length;
   const note = omitted > 0
-    ? `\n\n(注: タスク関連度の低い ${omitted} セクションは省略されています)`
+    ? t(`\n\n(注: タスク関連度の低い ${omitted} セクションは省略されています)`, `\n\n(Note: ${omitted} section(s) with low relevance to the task were omitted)`)
     : '';
   return ordered.join('\n\n').slice(0, maxChars) + note;
 }

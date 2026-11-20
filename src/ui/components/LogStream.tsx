@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { theme } from '../theme.js';
 import type { LogEvent } from '../../events.js';
+import { t } from '../../utils/i18n.js';
 
 const SOURCE_COLORS: Record<string, string> = {
   agent:  theme.special,
@@ -109,7 +110,7 @@ export const LogStream: React.FC<Props> = ({
         </Text>
       </Box>
       {view.visible.length === 0 && (
-        <Text color={theme.fgFaint}>ログ待機中...</Text>
+        <Text color={theme.fgFaint}>{t('ログ待機中...', 'Waiting for logs...')}</Text>
       )}
       {view.visible.map((ev, i) => (
         <Box key={i} gap={1}>

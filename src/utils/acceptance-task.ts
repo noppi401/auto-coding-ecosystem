@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { Task } from '../state/types.js';
+import { t } from './i18n.js';
 
 const TEST_FILE = /^(.*\/)?[^/]+(\.(?:test|spec)\.[cm]?[jt]sx?)$/i;
 
@@ -17,9 +18,11 @@ export function buildAcceptanceTask(tasks: Task[]): Task {
 
   return {
     id: randomUUID(),
-    title: '受け入れテストと起動確認',
-    summary:
+    title: t('受け入れテストと起動確認', 'Acceptance tests and smoke check'),
+    summary: t(
       '要件定義の受け入れ条件から、実装を見ずに HTTP レベルの受け入れテストを作成し、実際にアプリを起動して要件どおりに動くことを確認する。失敗した場合は実装側を修正する。',
+      'Write HTTP-level acceptance tests from the acceptance criteria in the requirements, without looking at the implementation, and start the real app to confirm it works as required. If they fail, fix the implementation.'
+    ),
     branchName: `feat/task-${number}-acceptance`,
     targetFiles,
     testFiles: [testFile],

@@ -6,6 +6,8 @@
  * トリミングは決定論的に行い、省略箇所は明示する（CLAUDE.md 規約12: 失敗/省略の可視化）。
  */
 
+import { t } from './i18n.js';
+
 const DEFAULT_MAX_CHARS = 30000;
 const DEFAULT_EXCLUDE = 'package-lock.json,pnpm-lock.yaml,yarn.lock';
 
@@ -73,7 +75,7 @@ export function trimPrDiff(diff: string): string {
 
   const notes: string[] = [];
   if (excludedFiles.length > 0) {
-    notes.push(`(注: レビュー対象外として除外: ${excludedFiles.join(', ')})`);
+    notes.push(t(`(注: レビュー対象外として除外: ${excludedFiles.join(', ')})`, `(Note: excluded from review: ${excludedFiles.join(', ')})`));
   }
 
   let body = kept.join('\n');
@@ -95,7 +97,10 @@ export function trimPrDiff(diff: string): string {
       body = body.slice(0, maxChars);
     }
     notes.push(
-      `(注: PR diff が上限 ${maxChars} 文字を超えたためトリミングしました${omitted > 0 ? `。${omitted} ファイルブロックを省略` : ''})`
+      t(
+        `(注: PR diff が上限 ${maxChars} 文字を超えたためトリミングしました${omitted > 0 ? `。${omitted} ファイルブロックを省略` : ''})`,
+        `(Note: the PR diff exceeded the ${maxChars}-character limit and was trimmed${omitted > 0 ? `; ${omitted} file block(s) omitted` : ''})`
+      )
     );
   }
 

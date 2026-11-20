@@ -3,6 +3,7 @@ import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { theme, statusMeta } from '../theme.js';
 import type { Task } from '../../state/types.js';
+import { t } from '../../utils/i18n.js';
 
 interface Props {
   task: Task | null;
@@ -16,7 +17,7 @@ export const CurrentTaskCard: React.FC<Props> = ({ task, taskIndex, totalTasks, 
     return (
       <Box flexDirection="column" paddingX={1} paddingY={0} borderBottom borderStyle="single" borderColor={theme.border}>
         <Text color={theme.fgDim}>CURRENT TASK</Text>
-        <Text color={theme.fgFaint}>待機中...</Text>
+        <Text color={theme.fgFaint}>{t('待機中...', 'Waiting...')}</Text>
       </Box>
     );
   }

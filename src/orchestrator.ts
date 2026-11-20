@@ -33,9 +33,13 @@ import { findUnreachableModules } from './utils/unreachable-modules.js';
 
 // レビュー・修正で常に参照させるプロジェクト設定（モジュール方式・ビルド・スクリプトの前提を誤解させないため）
 const PROJECT_CONFIG_FILES = ['package.json', 'tsconfig.json'];
+// node --test で直接実行する理由（ゲート結果の文に埋め込む）
+const NO_PACKAGE_JSON = () => t('package.json がない', 'package.json is missing');
+const NO_TEST_SCRIPT = () => t('有効な test script がない', 'there is no valid test script');
 import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-output.js';
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
+import { t } from './utils/i18n.js';
 import { decideRequirementsSplit, splitByHeadings, sliceByLineRanges } from './utils/requirements-split.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
@@ -404,7 +408,10 @@ export class Orchestrator {
       await this._recordTaskCheck(task, {
         name: 'reachability',
         status: 'skipped',
-        summary: 'start script から起動ファイルを特定できないため、未接続モジュールの検出を未実行',
+        summary: t(
+          'start script から起動ファイルを特定できないため、未接続モジュールの検出を未実行',
+          'Skipped unconnected-module detection: cannot identify the entry file from the start script'
+        ),
       });
       return;
     }
@@ -420,7 +427,7 @@ export class Orchestrator {
       await this._recordTaskCheck(task, {
         name: 'reachability',
         status: 'passed',
-        summary: `すべてのソースファイルが起動ファイル ${entry} から読み込まれている`,
+        summary: t(`すべてのソースファイルが起動ファイル ${entry} から読み込まれている`, `Every source file is loaded from the entry file ${entry}`),
       });
       return;
     }
@@ -429,7 +436,10 @@ export class Orchestrator {
     await this._recordTaskCheck(task, {
       name: 'reachability',
       status: 'failed',
-      summary: `起動ファイル ${entry} から読み込まれていないソースファイルが ${unreachable.length} 件`,
+      summary: t(
+        `起動ファイル ${entry} から読み込まれていないソースファイルが ${unreachable.length} 件`,
+        `${unreachable.length} source file(s) not loaded from the entry file ${entry}`
+      ),
       severity: 'blocking',
       details: unreachable.join('\n'),
     });
@@ -437,7 +447,10 @@ export class Orchestrator {
       comments.push({
         path,
         line: 1,
-        body: `**未接続のモジュール**\n\n\`${path}\` は、起動ファイル \`${entry}\` から \`require\` / \`import\` をたどっても読み込まれていません。作った機能がアプリに組み込まれていない（例: 本物の画面があるのに仮置きの HTML を返している、検証関数があるのに別に書き直している）可能性があります。必要なら呼び出し側で読み込んで使い、不要なら削除してください。`,
+        body: t(
+          `**未接続のモジュール**\n\n\`${path}\` は、起動ファイル \`${entry}\` から \`require\` / \`import\` をたどっても読み込まれていません。作った機能がアプリに組み込まれていない（例: 本物の画面があるのに仮置きの HTML を返している、検証関数があるのに別に書き直している）可能性があります。必要なら呼び出し側で読み込んで使い、不要なら削除してください。`,
+          `**Unconnected module**\n\n\`${path}\` is not loaded when following \`require\` / \`import\` from the entry file \`${entry}\`. The feature it implements may not be wired into the app (for example, serving a placeholder HTML page while a real UI exists, or re-implementing a validation function that already exists). Load and use it from the caller if it is needed; otherwise delete it.`
+        ),
         severity: 'blocking',
       });
     }
@@ -464,14 +477,14 @@ export class Orchestrator {
       : {};
     const files = Object.entries(contents).map(([path, content]) => ({ path, content }));
     if (files.length === 0) {
-      await this._recordTaskCheck(task, { name: 'syntax', status: 'skipped', summary: 'JS ファイルが無いため構文チェックを未実行' });
+      await this._recordTaskCheck(task, { name: 'syntax', status: 'skipped', summary: t('JS ファイルが無いため構文チェックを未実行', 'Skipped syntax check: no JS files') });
       return;
     }
 
     logger.info('Running JavaScript syntax check (node --check)...', `${files.length} files`);
     const errors = await checkJsSyntax(files);
     if (errors.length === 0) {
-      await this._recordTaskCheck(task, { name: 'syntax', status: 'passed', summary: `構文チェック通過（${files.length} ファイル）` });
+      await this._recordTaskCheck(task, { name: 'syntax', status: 'passed', summary: t(`構文チェック通過（${files.length} ファイル）`, `Syntax check passed (${files.length} files)`) });
       return;
     }
 
@@ -479,7 +492,7 @@ export class Orchestrator {
     await this._recordTaskCheck(task, {
       name: 'syntax',
       status: 'failed',
-      summary: `構文エラー（${errors.length} ファイル）`,
+      summary: t(`構文エラー（${errors.length} ファイル）`, `Syntax errors (${errors.length} files)`),
       severity: 'blocking',
       details: summarizeOutput(errors.map((e) => e.message).join('\n\n'), 1500),
     });
@@ -487,7 +500,10 @@ export class Orchestrator {
       comments.push({
         path: e.path,
         line: 1,
-        body: `**構文エラー**\n\n\`node --check\` が \`${e.path}\` の構文エラーを検出しました。このファイルを読み込めないため、テストも実行できません。構文エラーを直してください。\n\n\`\`\`\n${e.message}\n\`\`\``,
+        body: t(
+          `**構文エラー**\n\n\`node --check\` が \`${e.path}\` の構文エラーを検出しました。このファイルを読み込めないため、テストも実行できません。構文エラーを直してください。`,
+          `**Syntax error**\n\n\`node --check\` found a syntax error in \`${e.path}\`. The file cannot be loaded, so tests cannot run either. Fix the syntax error.`
+        ) + `\n\n\`\`\`\n${e.message}\n\`\`\``,
         severity: 'blocking',
       });
     }
@@ -516,14 +532,14 @@ export class Orchestrator {
       await this._recordTaskCheck(task, {
         name: 'test',
         status: 'skipped',
-        summary: `${reason}ため npm test を未実行（実行できる JS のテストファイルも無い）`,
+        summary: t(`${reason}ため npm test を未実行（実行できる JS のテストファイルも無い）`, `Skipped npm test because ${reason} (and there are no runnable JS test files)`),
       });
       return;
     }
 
     const args = ['--test', ...testFiles];
     const command = commandLine('node', args);
-    logger.info(`Running tests directly because ${reason === 'package.json がない' ? 'package.json is missing' : 'no test script'}...`, command);
+    logger.info(`Running tests directly because ${reason === NO_PACKAGE_JSON() ? 'package.json is missing' : 'no test script'}...`, command);
     const result = await githubAgent.runCommandInWorktree(
       state.githubOwner, state.githubRepo, task.branchName, 'node', args, 120000
     );
@@ -531,7 +547,7 @@ export class Orchestrator {
       await this._recordTaskCheck(task, {
         name: 'test',
         status: 'passed',
-        summary: `${reason}ため node --test で直接実行して通過（${testFiles.length} ファイル）`,
+        summary: t(`${reason}ため node --test で直接実行して通過（${testFiles.length} ファイル）`, `Passed when run directly with node --test because ${reason} (${testFiles.length} files)`),
         command,
         exitCode: 0,
       });
@@ -543,7 +559,7 @@ export class Orchestrator {
     await this._recordTaskCheck(task, {
       name: 'test',
       status: 'failed',
-      summary: `${reason}ため node --test で直接実行して失敗`,
+      summary: t(`${reason}ため node --test で直接実行して失敗`, `Failed when run directly with node --test because ${reason}`),
       command,
       exitCode: result.exitCode,
       timedOut: result.timedOut,
@@ -553,7 +569,10 @@ export class Orchestrator {
     comments.push({
       path: 'package.json',
       line: 1,
-      body: `**テスト失敗**\n\n${reason}ため \`${command}\` で直接テストを実行し、失敗しました。実装（またはテストの不具合）を直してください。テストを実行対象から外して通すことは禁止です。\n\n\`\`\`\n${output.slice(0, 3000)}\n\`\`\``,
+      body: t(
+        `**テスト失敗**\n\n${reason}ため \`${command}\` で直接テストを実行し、失敗しました。実装（またはテストの不具合）を直してください。テストを実行対象から外して通すことは禁止です。`,
+        `**Tests failed**\n\nBecause ${reason}, the tests were run directly with \`${command}\` and failed. Fix the implementation (or the bug in the test). Removing tests from the run to make it pass is not allowed.`
+      ) + `\n\n\`\`\`\n${output.slice(0, 3000)}\n\`\`\``,
       severity: 'blocking',
     });
   }
@@ -823,7 +842,7 @@ export class Orchestrator {
         await this._recordTaskCheck(task, {
           name: 'test-regression',
           status: 'failed',
-          summary: `${testRegressionComments.length} 件のテスト退行を検出`,
+          summary: t(`${testRegressionComments.length} 件のテスト退行を検出`, `Detected ${testRegressionComments.length} test regression(s)`),
           severity: 'blocking',
           details: testRegressionComments.map((comment) => `${comment.path}: ${comment.body}`).join('\n\n').slice(0, 2000),
         });
@@ -833,7 +852,7 @@ export class Orchestrator {
         await this._recordTaskCheck(task, {
           name: 'test-regression',
           status: 'passed',
-          summary: 'PR diff にテスト削除・無効化・アサーション削除は検出されませんでした',
+          summary: t('PR diff にテスト削除・無効化・アサーション削除は検出されませんでした', 'No test deletion, disabling, or assertion removal found in the PR diff'),
         });
       }
 
@@ -1107,8 +1126,8 @@ export class Orchestrator {
         `${repositoryContext.length} chars -> ${summary.length} chars`
       );
       return [
-        '# リポジトリコンテキスト要約',
-        '(元の全文ではなく、再利用のため要約されたコンテキストです)',
+        t('# リポジトリコンテキスト要約', '# Repository context summary'),
+        t('(元の全文ではなく、再利用のため要約されたコンテキストです)', '(a summary of the context for reuse, not the full original text)'),
         '',
         summary,
       ].join('\n');
@@ -1230,7 +1249,7 @@ export class Orchestrator {
       id: randomUUID(),
       title: sourceIssue.title,
       summary: [
-        `既存 Issue #${sourceIssue.number} を実装します。`,
+        t(`既存 Issue #${sourceIssue.number} を実装します。`, `Implement existing Issue #${sourceIssue.number}.`),
         sourceIssue.body.trim() || '(Issue body is empty)',
       ].join('\n\n'),
       branchName: `feat/issue-${sourceIssue.number}-${this._slugify(sourceIssue.title)}`,
@@ -1362,8 +1381,8 @@ export class Orchestrator {
 
   private _buildSourceIssueRequirementsDoc(sourceIssues: SourceIssue[], instruction: string): string {
     const issueSections = sourceIssues.map((sourceIssue) => {
-      const labels = sourceIssue.labels.length > 0 ? sourceIssue.labels.join(', ') : 'なし';
-      const body = sourceIssue.body.trim() || '(本文なし)';
+      const labels = sourceIssue.labels.length > 0 ? sourceIssue.labels.join(', ') : t('なし', 'none');
+      const body = sourceIssue.body.trim() || t('(本文なし)', '(no body)');
 
       return `### Issue #${sourceIssue.number}
 - Title: ${sourceIssue.title}
@@ -1373,7 +1392,7 @@ export class Orchestrator {
 ${body}`;
     }).join('\n\n');
 
-    return `# 既存 Issue 内容確認
+    return t(`# 既存 Issue 内容確認
 
 ## 対象 Issue
 ${issueSections}
@@ -1385,7 +1404,19 @@ ${issueSections}
 
 ## 入力全文
 ${instruction}
-`;
+`, `# Review of existing Issues
+
+## Target Issues
+${issueSections}
+
+## Execution plan
+- Treat each selected existing Issue as one unit of work
+- Do not create additional task-breakdown Issues
+- Link each implementation PR to its Issue
+
+## Full input
+${instruction}
+`);
   }
 
   private _buildSourceIssueDesignDoc(sourceIssues: SourceIssue[], repositoryContext?: string): string {
@@ -1393,7 +1424,8 @@ ${instruction}
       .map((sourceIssue) => `- GitHub Issue #${sourceIssue.number}: ${sourceIssue.title}`)
       .join('\n');
 
-    return `# 既存 Issue 実装メモ
+    const context = repositoryContext || '(repository context was not loaded)';
+    return t(`# 既存 Issue 実装メモ
 
 ## 実装対象
 ${targetIssues}
@@ -1405,8 +1437,21 @@ ${targetIssues}
 - 変更後は既存の build/test チェックで検証する
 
 ## リポジトリコンテキスト
-${repositoryContext || '(repository context was not loaded)'}
-`;
+${context}
+`, `# Implementation notes for existing Issues
+
+## Targets
+${targetIssues}
+
+## Approach
+- Treat the Issue body as the acceptance criteria
+- Process each Issue as an independent task
+- Read the existing code and resolve the Issue with the smallest change
+- Verify with the existing build/test checks after the change
+
+## Repository context
+${context}
+`);
   }
 
   private _slugify(value: string): string {
@@ -1505,9 +1550,9 @@ ${repositoryContext || '(repository context was not loaded)'}
       repo,
       sourceIssue.number,
       [
-        'Auto Coding Ecosystem がこの Issue の処理を開始しました。',
+        t('Auto Coding Ecosystem がこの Issue の処理を開始しました。', 'Auto Coding Ecosystem has started working on this Issue.'),
         '',
-        '生成された実行タスク:',
+        t('生成された実行タスク:', 'Generated tasks:'),
         ...taskLines,
       ].join('\n')
     );
@@ -1545,8 +1590,8 @@ ${repositoryContext || '(repository context was not loaded)'}
         state.githubRepo,
         sourceIssue.number,
         [
-          'Auto Coding Ecosystem による実行が完了しました。',
-          completedTasks ? `完了した実行タスク: ${completedTasks}` : '',
+          t('Auto Coding Ecosystem による実行が完了しました。', 'Auto Coding Ecosystem has finished.'),
+          completedTasks ? t(`完了した実行タスク: ${completedTasks}`, `Completed tasks: ${completedTasks}`) : '',
         ].filter(Boolean).join('\n\n')
       );
     }
@@ -1558,11 +1603,14 @@ ${repositoryContext || '(repository context was not loaded)'}
     task: Task
   ): Promise<ReviewComment[]> {
     if (process.env.BUILD_CHECK_ENABLED === 'false') {
-      const body = '**決定論ゲート未実行**\n\n`BUILD_CHECK_ENABLED=false` のため、TypeScript型チェック・依存インストール・テスト・カバレッジ確認は実行されていません。';
+      const body = t(
+        '**決定論ゲート未実行**\n\n`BUILD_CHECK_ENABLED=false` のため、TypeScript型チェック・依存インストール・テスト・カバレッジ確認は実行されていません。',
+        '**Deterministic gate not run**\n\nBecause `BUILD_CHECK_ENABLED=false`, the TypeScript type check, dependency install, tests, and coverage check were not run.'
+      );
       await this._recordTaskCheck(task, {
         name: 'build-gate',
         status: 'skipped',
-        summary: 'BUILD_CHECK_ENABLED=false のため決定論ゲートを未実行',
+        summary: t('BUILD_CHECK_ENABLED=false のため決定論ゲートを未実行', 'Skipped the deterministic gate because BUILD_CHECK_ENABLED=false'),
         severity: 'suggestion',
       });
       logger.warn('Build/test gate disabled by BUILD_CHECK_ENABLED=false');
@@ -1593,7 +1641,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         await this._recordTaskCheck(task, {
           name: 'typescript',
           status: 'failed',
-          summary: 'TypeScript型チェックがタイムアウト',
+          summary: t('TypeScript型チェックがタイムアウト', 'TypeScript type check timed out'),
           command,
           timedOut: true,
           severity: 'blocking',
@@ -1601,7 +1649,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         comments.push({
           path: 'tsconfig.json',
           line: 1,
-          body: '**ビルドエラー（TypeScript型チェックタイムアウト）**\n\n`npx tsc --noEmit` がタイムアウトしました。型チェックが完了する状態にしてからマージしてください。',
+          body: t(
+            '**ビルドエラー（TypeScript型チェックタイムアウト）**\n\n`npx tsc --noEmit` がタイムアウトしました。型チェックが完了する状態にしてからマージしてください。',
+            '**Build error (TypeScript type check timed out)**\n\n`npx tsc --noEmit` timed out. Make the type check complete before merging.'
+          ),
           severity: 'blocking',
         });
       } else if (tscResult.exitCode !== 0) {
@@ -1611,7 +1662,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         await this._recordTaskCheck(task, {
           name: 'typescript',
           status: 'failed',
-          summary: `TypeScript型チェック失敗（${lineCount}行の出力）`,
+          summary: t(`TypeScript型チェック失敗（${lineCount}行の出力）`, `TypeScript type check failed (${lineCount} lines of output)`),
           command,
           exitCode: tscResult.exitCode,
           severity: 'blocking',
@@ -1620,7 +1671,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         comments.push({
           path: 'tsconfig.json',
           line: 1,
-          body: `**ビルドエラー（TypeScript型チェック失敗）**\n\n\`npx tsc --noEmit\` が失敗しました。型エラーをすべて修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+          body: t(
+            '**ビルドエラー（TypeScript型チェック失敗）**\n\n`npx tsc --noEmit` が失敗しました。型エラーをすべて修正してからマージしてください。',
+            '**Build error (TypeScript type check failed)**\n\n`npx tsc --noEmit` failed. Fix every type error before merging.'
+          ) + `\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
           severity: 'blocking',
         });
       } else if (tscResult.exitCode === 0) {
@@ -1628,7 +1682,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         await this._recordTaskCheck(task, {
           name: 'typescript',
           status: 'passed',
-          summary: 'TypeScript型チェック通過',
+          summary: t('TypeScript型チェック通過', 'TypeScript type check passed'),
           command,
           exitCode: 0,
         });
@@ -1637,7 +1691,7 @@ ${repositoryContext || '(repository context was not loaded)'}
       await this._recordTaskCheck(task, {
         name: 'typescript',
         status: 'skipped',
-        summary: 'tsconfig.json がないためTypeScript型チェックを未実行',
+        summary: t('tsconfig.json がないためTypeScript型チェックを未実行', 'Skipped TypeScript type check: no tsconfig.json'),
       });
     }
 
@@ -1693,7 +1747,7 @@ ${repositoryContext || '(repository context was not loaded)'}
             await this._recordTaskCheck(task, {
               name: 'install',
               status: 'failed',
-              summary: `依存インストール失敗: ${installCommand}`,
+              summary: t(`依存インストール失敗: ${installCommand}`, `Dependency install failed: ${installCommand}`),
               command: installCommand,
               exitCode: installResult.exitCode,
               timedOut: installResult.timedOut,
@@ -1703,13 +1757,16 @@ ${repositoryContext || '(repository context was not loaded)'}
             comments.push({
               path: 'package.json',
               line: 1,
-              body: `**テスト準備失敗**\n\n\`${installCommand}\` が失敗したため、\`npm test\` を実行できませんでした。\n\n理由: ${installChoice.reason}\n\n依存関係の問題を修正してからマージしてください。\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
+              body: t(
+                `**テスト準備失敗**\n\n\`${installCommand}\` が失敗したため、\`npm test\` を実行できませんでした。\n\n理由: ${installChoice.reason}\n\n依存関係の問題を修正してからマージしてください。`,
+                `**Test setup failed**\n\n\`${installCommand}\` failed, so \`npm test\` could not run.\n\nReason: ${installChoice.reason}\n\nFix the dependency problem before merging.`
+              ) + `\n\n\`\`\`\n${errorOutput.slice(0, 3000)}\n\`\`\``,
               severity: 'blocking',
             });
             await this._recordTaskCheck(task, {
               name: 'build-gate',
               status: 'failed',
-              summary: '依存インストール失敗により決定論ゲート停止',
+              summary: t('依存インストール失敗により決定論ゲート停止', 'Deterministic gate stopped: dependency install failed'),
               severity: 'blocking',
             });
             return comments;
@@ -1717,7 +1774,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'install',
             status: 'passed',
-            summary: `依存インストール通過: ${installCommand}`,
+            summary: t(`依存インストール通過: ${installCommand}`, `Dependency install passed: ${installCommand}`),
             command: installCommand,
             exitCode: 0,
             details: installChoice.reason,
@@ -1726,7 +1783,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'install',
             status: 'skipped',
-            summary: 'node_modules が存在するため依存インストールを未実行',
+            summary: t('node_modules が存在するため依存インストールを未実行', 'Skipped dependency install: node_modules already exists'),
           });
         }
 
@@ -1742,7 +1799,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'test',
             status: 'failed',
-            summary: 'npm test がタイムアウト',
+            summary: t('npm test がタイムアウト', 'npm test timed out'),
             command: testCommand,
             timedOut: true,
             severity: 'blocking',
@@ -1750,7 +1807,10 @@ ${repositoryContext || '(repository context was not loaded)'}
           comments.push({
             path: 'package.json',
             line: 1,
-            body: '**テスト失敗（タイムアウト）**\n\n`npm test` がタイムアウトしました。テストが完了する状態にしてからマージしてください。',
+            body: t(
+              '**テスト失敗（タイムアウト）**\n\n`npm test` がタイムアウトしました。テストが完了する状態にしてからマージしてください。',
+              '**Tests failed (timeout)**\n\n`npm test` timed out. Make the tests complete before merging.'
+            ),
             severity: 'blocking',
           });
         } else if (testResult.exitCode !== 0) {
@@ -1760,7 +1820,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'test',
             status: 'failed',
-            summary: `npm test 失敗（${failureSummary.totalFailed}件）`,
+            summary: t(`npm test 失敗（${failureSummary.totalFailed}件）`, `npm test failed (${failureSummary.totalFailed})`),
             command: testCommand,
             exitCode: testResult.exitCode,
             severity: 'blocking',
@@ -1769,7 +1829,10 @@ ${repositoryContext || '(repository context was not loaded)'}
           comments.push({
             path: 'package.json',
             line: 1,
-            body: `**テスト失敗**\n\n\`npm test\` が失敗しました。マージ前にすべてのテストを通してください。\n\n${formatTestFailureComment(failureSummary, errorOutput)}`,
+            body: t(
+              '**テスト失敗**\n\n`npm test` が失敗しました。マージ前にすべてのテストを通してください。',
+              '**Tests failed**\n\n`npm test` failed. Make every test pass before merging.'
+            ) + `\n\n${formatTestFailureComment(failureSummary, errorOutput)}`,
             severity: 'blocking',
           });
         } else {
@@ -1777,7 +1840,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'test',
             status: 'passed',
-            summary: 'npm test 通過',
+            summary: t('npm test 通過', 'npm test passed'),
             command: testCommand,
             exitCode: 0,
           });
@@ -1798,33 +1861,39 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'test-coverage-of-script',
             status: 'failed',
-            summary: `test script が ${unexecuted.length} 件のテストファイルを実行しない`,
+            summary: t(`test script が ${unexecuted.length} 件のテストファイルを実行しない`, `The test script does not run ${unexecuted.length} test file(s)`),
             severity: 'blocking',
             details: unexecuted.join('\n'),
           });
           comments.push({
             path: 'package.json',
             line: 1,
-            body: `**test script が全テストを実行していません**\n\n\`scripts.test\` (\`${testScript}\`) は次のテストファイルを実行しないため、\`npm test\` が通っても、それらの健全性が保証されません。\`scripts.test\` を、すべてのテストを実行するよう直してください（例: \`node --test\` にファイル引数を付けない、またはすべて列挙する）。\n\n**以下のファイルはすでにリポジトリに存在します。作り直さず、内容も変更せず、\`package.json\` の \`scripts.test\` だけを直してください。**\n\n${unexecuted.map((f) => `- ${f}`).join('\n')}`,
+            body: t(
+              `**test script が全テストを実行していません**\n\n\`scripts.test\` (\`${testScript}\`) は次のテストファイルを実行しないため、\`npm test\` が通っても、それらの健全性が保証されません。\`scripts.test\` を、すべてのテストを実行するよう直してください（例: \`node --test\` にファイル引数を付けない、またはすべて列挙する）。\n\n**以下のファイルはすでにリポジトリに存在します。作り直さず、内容も変更せず、\`package.json\` の \`scripts.test\` だけを直してください。**`,
+              `**The test script does not run every test**\n\n\`scripts.test\` (\`${testScript}\`) does not run the test files below, so passing \`npm test\` says nothing about them. Fix \`scripts.test\` so it runs every test (for example, run \`node --test\` without file arguments, or list them all).\n\n**These files already exist in the repository. Do not recreate or change them; fix only \`scripts.test\` in \`package.json\`.**`
+            ) + `\n\n${unexecuted.map((f) => `- ${f}`).join('\n')}`,
             severity: 'blocking',
           });
         } else {
           await this._recordTaskCheck(task, {
             name: 'test-coverage-of-script',
             status: 'passed',
-            summary: `test script は ${testFilesInRepo.length} 件のテストファイルをすべて実行対象にしている（または判定対象外）`,
+            summary: t(
+              `test script は ${testFilesInRepo.length} 件のテストファイルをすべて実行対象にしている（または判定対象外）`,
+              `The test script runs all ${testFilesInRepo.length} test file(s) (or cannot be analyzed)`
+            ),
           });
         }
       } else {
-        await this._runNodeTestFallback(githubAgent, state, task, comments, '有効な test script がない');
+        await this._runNodeTestFallback(githubAgent, state, task, comments, NO_TEST_SCRIPT());
       }
     } else {
       await this._recordTaskCheck(task, {
         name: 'install',
         status: 'skipped',
-        summary: 'package.json がないため依存インストールを未実行',
+        summary: t('package.json がないため依存インストールを未実行', 'Skipped dependency install: no package.json'),
       });
-      await this._runNodeTestFallback(githubAgent, state, task, comments, 'package.json がない');
+      await this._runNodeTestFallback(githubAgent, state, task, comments, NO_PACKAGE_JSON());
     }
 
     // 起動確認（受け入れタスクのみ）: テストとは独立に、実際に起動して GET / が応答するかを確かめる。
@@ -1836,7 +1905,7 @@ ${repositoryContext || '(repository context was not loaded)'}
         await this._recordTaskCheck(task, {
           name: 'smoke',
           status: 'skipped',
-          summary: 'package.json に start script がないため起動確認を未実行',
+          summary: t('package.json に start script がないため起動確認を未実行', 'Skipped smoke check: package.json has no start script'),
         });
       } else {
         logger.info('Running smoke check (npm start + GET /)...');
@@ -1854,7 +1923,10 @@ ${repositoryContext || '(repository context was not loaded)'}
           comments.push({
             path: entryFileFromStartScript(startScript) ?? 'package.json',
             line: 1,
-            body: `**起動確認失敗**\n\n${smoke.summary}\n\nアプリを \`npm start\`（環境変数 PORT で待ち受け）で起動し、\`GET /\` が 2xx/3xx を返すように実装を直してください。\n\n\`\`\`\n${(smoke.details ?? '').slice(0, 2000)}\n\`\`\``,
+            body: t(
+              `**起動確認失敗**\n\n${smoke.summary}\n\nアプリを \`npm start\`（環境変数 PORT で待ち受け）で起動し、\`GET /\` が 2xx/3xx を返すように実装を直してください。`,
+              `**Smoke check failed**\n\n${smoke.summary}\n\nFix the implementation so that the app starts with \`npm start\` (listening on the PORT environment variable) and \`GET /\` returns 2xx/3xx.`
+            ) + `\n\n\`\`\`\n${(smoke.details ?? '').slice(0, 2000)}\n\`\`\``,
             severity: 'blocking',
           });
         } else {
@@ -1884,9 +1956,11 @@ ${repositoryContext || '(repository context was not loaded)'}
         const coverageOutput = (coverageResult.stdout + '\n' + coverageResult.stderr).trim();
         if (coverageResult.timedOut || coverageResult.exitCode !== 0) {
           const body = [
-            coverageResult.timedOut ? '**カバレッジ計測失敗（タイムアウト）**' : '**カバレッジ計測失敗**',
+            coverageResult.timedOut
+              ? t('**カバレッジ計測失敗（タイムアウト）**', '**Coverage measurement failed (timeout)**')
+              : t('**カバレッジ計測失敗**', '**Coverage measurement failed**'),
             '',
-            `\`${coverageCommand}\` を実行しましたが、カバレッジを計測できませんでした。`,
+            t(`\`${coverageCommand}\` を実行しましたが、カバレッジを計測できませんでした。`, `Ran \`${coverageCommand}\` but could not measure coverage.`),
             '',
             '```',
             coverageOutput.slice(0, 3000),
@@ -1895,7 +1969,9 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'coverage',
             status: coverageStrict ? 'failed' : 'warning',
-            summary: coverageResult.timedOut ? 'カバレッジ計測がタイムアウト' : `カバレッジ計測失敗（exit ${coverageResult.exitCode}）`,
+            summary: coverageResult.timedOut
+              ? t('カバレッジ計測がタイムアウト', 'Coverage measurement timed out')
+              : t(`カバレッジ計測失敗（exit ${coverageResult.exitCode}）`, `Coverage measurement failed (exit ${coverageResult.exitCode})`),
             command: coverageCommand,
             exitCode: coverageResult.exitCode,
             timedOut: coverageResult.timedOut,
@@ -1913,7 +1989,7 @@ ${repositoryContext || '(repository context was not loaded)'}
             await this._recordTaskCheck(task, {
               name: 'coverage',
               status: 'warning',
-              summary: `カバレッジ閾値未満 lines ${summary.lines}% / branches ${summary.branches}%`,
+              summary: t(`カバレッジ閾値未満 lines ${summary.lines}% / branches ${summary.branches}%`, `Coverage below threshold: lines ${summary.lines}% / branches ${summary.branches}%`),
               command: coverageCommand,
               exitCode: 0,
               severity: 'suggestion',
@@ -1929,7 +2005,7 @@ ${repositoryContext || '(repository context was not loaded)'}
             await this._recordTaskCheck(task, {
               name: 'coverage',
               status: 'passed',
-              summary: `カバレッジ閾値クリア lines ${summary.lines}% / branches ${summary.branches}%`,
+              summary: t(`カバレッジ閾値クリア lines ${summary.lines}% / branches ${summary.branches}%`, `Coverage threshold met: lines ${summary.lines}% / branches ${summary.branches}%`),
               command: coverageCommand,
               exitCode: 0,
             });
@@ -1937,9 +2013,9 @@ ${repositoryContext || '(repository context was not loaded)'}
         } else {
           logger.warn('Could not parse coverage output');
           const body = [
-            '**カバレッジ未解析**',
+            t('**カバレッジ未解析**', '**Coverage not parsed**'),
             '',
-            `\`${coverageCommand}\` は成功しましたが、出力からカバレッジ率を解析できませんでした。`,
+            t(`\`${coverageCommand}\` は成功しましたが、出力からカバレッジ率を解析できませんでした。`, `\`${coverageCommand}\` succeeded, but the coverage percentages could not be parsed from its output.`),
             '',
             '```',
             coverageOutput.slice(0, 3000),
@@ -1948,7 +2024,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           await this._recordTaskCheck(task, {
             name: 'coverage',
             status: coverageStrict ? 'failed' : 'warning',
-            summary: 'カバレッジ出力を解析できませんでした',
+            summary: t('カバレッジ出力を解析できませんでした', 'Could not parse the coverage output'),
             command: coverageCommand,
             exitCode: 0,
             severity: coverageSeverity,
@@ -1959,11 +2035,14 @@ ${repositoryContext || '(repository context was not loaded)'}
         }
       } else {
         logger.warn('COVERAGE_CHECK_ENABLED=true but no test:coverage script found');
-        const body = '**カバレッジ未計測**\n\n`COVERAGE_CHECK_ENABLED=true` ですが、`package.json` に `test:coverage` スクリプトがないため計測できませんでした。';
+        const body = t(
+          '**カバレッジ未計測**\n\n`COVERAGE_CHECK_ENABLED=true` ですが、`package.json` に `test:coverage` スクリプトがないため計測できませんでした。',
+          '**Coverage not measured**\n\n`COVERAGE_CHECK_ENABLED=true` is set, but `package.json` has no `test:coverage` script, so coverage could not be measured.'
+        );
         await this._recordTaskCheck(task, {
           name: 'coverage',
           status: coverageStrict ? 'failed' : 'warning',
-          summary: 'test:coverage script がないためカバレッジ未計測',
+          summary: t('test:coverage script がないためカバレッジ未計測', 'Coverage not measured: no test:coverage script'),
           severity: coverageSeverity,
         });
         comments.push({ path: 'package.json', line: 1, body, severity: coverageSeverity });
@@ -1972,7 +2051,7 @@ ${repositoryContext || '(repository context was not loaded)'}
       await this._recordTaskCheck(task, {
         name: 'coverage',
         status: 'skipped',
-        summary: 'COVERAGE_CHECK_ENABLED=true ではないためカバレッジ未実行',
+        summary: t('COVERAGE_CHECK_ENABLED=true ではないためカバレッジ未実行', 'Skipped coverage: COVERAGE_CHECK_ENABLED is not true'),
       });
     }
 
@@ -1981,10 +2060,10 @@ ${repositoryContext || '(repository context was not loaded)'}
       name: 'build-gate',
       status: hasBlocking ? 'failed' : comments.length > 0 ? 'warning' : 'passed',
       summary: hasBlocking
-        ? '決定論ゲートにblocking指摘があります'
+        ? t('決定論ゲートにblocking指摘があります', 'The deterministic gate has blocking findings')
         : comments.length > 0
-          ? '決定論ゲートは完了しましたがsuggestionがあります'
-          : '決定論ゲート通過',
+          ? t('決定論ゲートは完了しましたがsuggestionがあります', 'The deterministic gate finished with suggestions')
+          : t('決定論ゲート通過', 'Deterministic gate passed'),
       severity: hasBlocking ? 'blocking' : comments.length > 0 ? 'suggestion' : undefined,
     });
 
@@ -2020,7 +2099,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         comments.push({
           path: currentFile,
           line: 1,
-          body: `**テスト削除禁止**\n\nテストファイル \`${currentFile}\` が削除されています。テストを削除してビルドを通過させることは禁止されています。実装を修正してテストを通してください。`,
+          body: t(
+            `**テスト削除禁止**\n\nテストファイル \`${currentFile}\` が削除されています。テストを削除してビルドを通過させることは禁止されています。実装を修正してテストを通してください。`,
+            `**Deleting tests is not allowed**\n\nThe test file \`${currentFile}\` was deleted. Deleting tests to get the build to pass is not allowed. Fix the implementation so the tests pass.`
+          ),
           severity: 'blocking',
         });
       }
@@ -2038,7 +2120,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         comments.push({
           path: currentFile,
           line: 1,
-          body: `**テスト無効化禁止**\n\n\`${currentFile}\` に \`.skip\` / \`.todo\` / \`xit\` / \`xtest\` のいずれかが追加されています。テストを無効化してビルドを通過させることは禁止されています。`,
+          body: t(
+            `**テスト無効化禁止**\n\n\`${currentFile}\` に \`.skip\` / \`.todo\` / \`xit\` / \`xtest\` のいずれかが追加されています。テストを無効化してビルドを通過させることは禁止されています。`,
+            `**Disabling tests is not allowed**\n\n\`.skip\`, \`.todo\`, \`xit\`, or \`xtest\` was added to \`${currentFile}\`. Disabling tests to get the build to pass is not allowed.`
+          ),
           severity: 'blocking',
         });
       }
@@ -2071,7 +2156,10 @@ ${repositoryContext || '(repository context was not loaded)'}
         comments.push({
           path: currentFile,
           line: 1,
-          body: `**アサーション弱体化禁止**\n\n\`${currentFile}\` で弱いアサーションへの変更が検出されました。期待値を弱めてビルドを通過させることは禁止されています。`,
+          body: t(
+            `**アサーション弱体化禁止**\n\n\`${currentFile}\` で弱いアサーションへの変更が検出されました。期待値を弱めてビルドを通過させることは禁止されています。`,
+            `**Weakening assertions is not allowed**\n\nA change to a weaker assertion was found in \`${currentFile}\`. Weakening expectations to get the build to pass is not allowed.`
+          ),
           severity: 'blocking',
         });
       }
@@ -2082,7 +2170,10 @@ ${repositoryContext || '(repository context was not loaded)'}
       comments.push({
         path: file,
         line: 1,
-        body: `**テストケース削除禁止**\n\n\`${file}\` で \`it(...)\` / \`test(...)\` が差し引き ${net} 件減っています。テスト数を減らしてビルドを通過させることは禁止されています。古い挙動のテストは、削除ではなく新しい挙動のテストに書き換えてください。`,
+        body: t(
+          `**テストケース削除禁止**\n\n\`${file}\` で \`it(...)\` / \`test(...)\` が差し引き ${net} 件減っています。テスト数を減らしてビルドを通過させることは禁止されています。古い挙動のテストは、削除ではなく新しい挙動のテストに書き換えてください。`,
+          `**Removing test cases is not allowed**\n\n\`${file}\` has ${net} fewer \`it(...)\` / \`test(...)\` calls in net. Reducing the number of tests to get the build to pass is not allowed. Rewrite tests of old behavior into tests of the new behavior instead of deleting them.`
+        ),
         severity: 'blocking',
       });
     }
@@ -2091,7 +2182,10 @@ ${repositoryContext || '(repository context was not loaded)'}
       comments.push({
         path: file,
         line: 1,
-        body: `**アサーション削除禁止**\n\n\`${file}\` で \`expect(...)\` が差し引き ${net} 件減っています。アサーションを削除してビルドを通過させることは禁止されています。`,
+        body: t(
+          `**アサーション削除禁止**\n\n\`${file}\` で \`expect(...)\` が差し引き ${net} 件減っています。アサーションを削除してビルドを通過させることは禁止されています。`,
+          `**Removing assertions is not allowed**\n\n\`${file}\` has ${net} fewer \`expect(...)\` calls in net. Removing assertions to get the build to pass is not allowed.`
+        ),
         severity: 'blocking',
       });
     }
@@ -2112,32 +2206,35 @@ ${repositoryContext || '(repository context was not loaded)'}
 
       const validation = await validationAgent.validate(doc, instruction);
       const reportMd = this._buildValidationMarkdown(
-        `要件妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`,
+        t(`要件妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`, `Requirements validation report (attempt ${iter}/${VALIDATION_MAX_ITERATIONS})`),
         validation
       );
       await this._saveMarkdown('.ecosystem/requirements-validation.md', reportMd);
 
       logger.info(
-        `要件妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`,
+        t(`要件妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`, `Requirements validation score (attempt ${iter}): ${validation.score} (${validation.grade})`),
         validation.summary
       );
 
       if (validation.score >= VALIDATION_PASS_THRESHOLD) {
-        logger.info(`要件定義が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`);
+        logger.info(t(`要件定義が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`, `Requirements met the threshold (${VALIDATION_PASS_THRESHOLD})`));
         break;
       }
 
       if (iter === VALIDATION_MAX_ITERATIONS) {
         logger.warn(
-          `最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`,
-          '現在の要件定義でフェーズを続行します'
+          t(`最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`, `Reached the maximum number of attempts (${VALIDATION_MAX_ITERATIONS}). Final score: ${validation.score}`),
+          t('現在の要件定義でフェーズを続行します', 'Continuing the phase with the current requirements')
         );
         break;
       }
 
       logger.warn(
-        `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 要件定義を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
-        `問題点: ${validation.issues.join(' / ')}`
+        t(
+          `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 要件定義を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
+          `Score ${validation.score} < threshold ${VALIDATION_PASS_THRESHOLD}: revising the requirements (attempt ${iter + 1}/${VALIDATION_MAX_ITERATIONS})`
+        ),
+        t(`問題点: ${validation.issues.join(' / ')}`, `Issues: ${validation.issues.join(' / ')}`)
       );
       doc = await reqAgent.reviseRequirements(
         doc,
@@ -2196,12 +2293,15 @@ ${repositoryContext || '(repository context was not loaded)'}
     const crossCutting = await reqAgent.generateCrossCuttingRequirements(split.preamble, categoryDocs);
 
     return [
-      '# 要件定義書',
+      t('# 要件定義書', '# Requirements'),
       '',
-      `> 依頼文が大きいため ${categoryDocs.length} カテゴリに分けて要件定義しました（${decision.reason}）。`,
-      ...categoryDocs.flatMap(({ title, doc }) => ['', `## カテゴリ: ${title}`, '', doc]),
+      t(
+        `> 依頼文が大きいため ${categoryDocs.length} カテゴリに分けて要件定義しました（${decision.reason}）。`,
+        `> The request was large, so the requirements were written in ${categoryDocs.length} categories (${decision.reason}).`
+      ),
+      ...categoryDocs.flatMap(({ title, doc }) => ['', t(`## カテゴリ: ${title}`, `## Category: ${title}`), '', doc]),
       '',
-      '## カテゴリ横断の要件・矛盾点',
+      t('## カテゴリ横断の要件・矛盾点', '## Cross-category requirements and conflicts'),
       '',
       crossCutting.trim(),
       '',
@@ -2221,32 +2321,35 @@ ${repositoryContext || '(repository context was not loaded)'}
 
       const validation = await validationAgent.validate(doc, requirementsDoc);
       const reportMd = this._buildValidationMarkdown(
-        `設計書妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`,
+        t(`設計書妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`, `Design validation report (attempt ${iter}/${VALIDATION_MAX_ITERATIONS})`),
         validation
       );
       await this._saveMarkdown('.ecosystem/design-validation.md', reportMd);
 
       logger.info(
-        `設計書妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`,
+        t(`設計書妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`, `Design validation score (attempt ${iter}): ${validation.score} (${validation.grade})`),
         validation.summary
       );
 
       if (validation.score >= VALIDATION_PASS_THRESHOLD) {
-        logger.info(`設計書が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`);
+        logger.info(t(`設計書が閾値（${VALIDATION_PASS_THRESHOLD}点）を満たしました`, `Design met the threshold (${VALIDATION_PASS_THRESHOLD})`));
         break;
       }
 
       if (iter === VALIDATION_MAX_ITERATIONS) {
         logger.warn(
-          `最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`,
-          '現在の設計書でフェーズを続行します'
+          t(`最大試行回数（${VALIDATION_MAX_ITERATIONS}回）に達しました。最終スコア: ${validation.score}点`, `Reached the maximum number of attempts (${VALIDATION_MAX_ITERATIONS}). Final score: ${validation.score}`),
+          t('現在の設計書でフェーズを続行します', 'Continuing the phase with the current design')
         );
         break;
       }
 
       logger.warn(
-        `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 設計書を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
-        `問題点: ${validation.issues.join(' / ')}`
+        t(
+          `スコア ${validation.score}点 < 閾値 ${VALIDATION_PASS_THRESHOLD}点 — 設計書を修正します（試行${iter + 1}/${VALIDATION_MAX_ITERATIONS}）`,
+          `Score ${validation.score} < threshold ${VALIDATION_PASS_THRESHOLD}: revising the design (attempt ${iter + 1}/${VALIDATION_MAX_ITERATIONS})`
+        ),
+        t(`問題点: ${validation.issues.join(' / ')}`, `Issues: ${validation.issues.join(' / ')}`)
       );
       doc = await designAgent.reviseDesign(
         doc,
@@ -2264,9 +2367,9 @@ ${repositoryContext || '(repository context was not loaded)'}
       const absPath = `${process.cwd()}/${relativePath}`;
       await fs.mkdir(dirname(absPath), { recursive: true });
       await fs.writeFile(absPath, content, 'utf-8');
-      logger.info(`Markdown保存: ${relativePath}`);
+      logger.info(`Saved Markdown: ${relativePath}`);
     } catch (err) {
-      logger.warn(`Markdown保存失敗: ${relativePath}`, String(err));
+      logger.warn(`Failed to save Markdown: ${relativePath}`, String(err));
     }
   }
 
@@ -2275,10 +2378,10 @@ ${repositoryContext || '(repository context was not loaded)'}
       .map(([key, val]) => `| ${key} | ${val.score} | ${val.comment} |`)
       .join('\n');
 
-    const issueLines = result.issues.map((i) => `- ${i}`).join('\n') || '- なし';
-    const recLines = result.recommendations.map((r) => `- ${r}`).join('\n') || '- なし';
+    const issueLines = result.issues.map((i) => `- ${i}`).join('\n') || t('- なし', '- None');
+    const recLines = result.recommendations.map((r) => `- ${r}`).join('\n') || t('- なし', '- None');
 
-    return `# ${title}
+    return t(`# ${title}
 
 ## 総合スコア: ${result.score}点 / 100点（グレード: ${result.grade}）
 
@@ -2295,7 +2398,24 @@ ${issueLines}
 
 ## 改善提案
 ${recLines}
-`;
+`, `# ${title}
+
+## Overall score: ${result.score} / 100 (grade: ${result.grade})
+
+## Summary
+${result.summary}
+
+## Scores by category
+| Category | Score | Comment |
+|---|---|---|
+${categoryLines}
+
+## Issues
+${issueLines}
+
+## Recommendations
+${recLines}
+`);
   }
 
   private async _runCodexReviewIfEnabled(

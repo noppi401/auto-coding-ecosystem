@@ -14,6 +14,7 @@ import { Orchestrator } from '../../orchestrator.js';
 import { StateManager } from '../../state/manager.js';
 import { bus } from '../../events.js';
 import { openExternalUrl } from '../../utils/open-url.js';
+import { t } from '../../utils/i18n.js';
 import type { Task } from '../../state/types.js';
 import type { LogEvent } from '../../events.js';
 
@@ -120,13 +121,13 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
 
   const openPr = useCallback((task: Task | null) => {
     if (!task?.prUrl) {
-      setRunError('このタスクにはPR URLがありません。');
+      setRunError(t('このタスクにはPR URLがありません。', 'This task has no PR URL.'));
       return;
     }
     openExternalUrl(task.prUrl)
       .then(() => setRunError(null))
       .catch((err) => {
-        setRunError(`PRをブラウザで開けませんでした: ${task.prUrl} (${String(err)})`);
+        setRunError(t(`PRをブラウザで開けませんでした: ${task.prUrl} (${String(err)})`, `Could not open the PR in a browser: ${task.prUrl} (${String(err)})`));
       });
   }, []);
 
@@ -326,16 +327,16 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
         <Text color={theme.review}>{phaseLabel}</Text>
         <Text color={theme.fgFaint}>·</Text>
         {waitingForInput ? (
-          <Text color={theme.warning} bold>⏸ 入力待ち</Text>
+          <Text color={theme.warning} bold>⏸ {t('入力待ち', 'Waiting for input')}</Text>
         ) : orchestratorRunning ? (
-          <Text color={theme.success}><Spinner type="dots" /> 実行中</Text>
+          <Text color={theme.success}><Spinner type="dots" /> {t('実行中', 'Running')}</Text>
         ) : ecoState.phase === 'completed' ? (
-          <Text color={theme.success}>✓ 完了</Text>
+          <Text color={theme.success}>✓ {t('完了', 'Done')}</Text>
         ) : (
-          <Text color={theme.fgFaint}>待機</Text>
+          <Text color={theme.fgFaint}>{t('待機', 'Idle')}</Text>
         )}
         <Text color={theme.fgFaint}>{elapsed(startMs)}</Text>
-        {isPaused && <Text color={theme.warning}> [一時停止中]</Text>}
+        {isPaused && <Text color={theme.warning}> [{t('一時停止中', 'Paused')}]</Text>}
       </Box>
 
       {/* Main */}
@@ -355,7 +356,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
             <>
               {/* Issue #11: ログ表示中も現在処理中の Issue/タスクを常時表示 */}
               <Box paddingX={1} gap={1} borderBottom borderStyle="single" borderColor={theme.border}>
-                <Text color={theme.fgDim}>現在処理中</Text>
+                <Text color={theme.fgDim}>{t('現在処理中', 'Now processing')}</Text>
                 {currentTask ? (
                   <>
                     <Text color={theme.fg} bold>Task {ecoState.currentTaskIndex + 1}/{tasks.length}</Text>
@@ -369,7 +370,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
                     <Text color={theme.fg}>{currentTask.title}</Text>
                   </>
                 ) : (
-                  <Text color={theme.fgFaint}>待機中...</Text>
+                  <Text color={theme.fgFaint}>{t('待機中...', 'Waiting...')}</Text>
                 )}
               </Box>
               <LogStream
@@ -414,7 +415,7 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
       {/* Issue #3: タスク承認プレビュー */}
       {previewTasks && (
         <Box flexDirection="column" paddingX={2} paddingY={0} borderTop borderStyle="single" borderColor={theme.accent}>
-          <Text color={theme.accent} bold>▶ タスク分解結果（{previewTasks.length}件）· Issue 起票前の確認</Text>
+          <Text color={theme.accent} bold>{t(`▶ タスク分解結果（${previewTasks.length}件）· Issue 起票前の確認`, `▶ Task breakdown (${previewTasks.length}) · review before creating Issues`)}</Text>
           {previewTasks.slice(0, 12).map((t, i) => (
             <Text key={t.id} color={theme.fg}>
               {`${i + 1}. `}{t.title}
@@ -422,13 +423,13 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
             </Text>
           ))}
           {previewTasks.length > 12 && (
-            <Text color={theme.fgFaint}>... 他 {previewTasks.length - 12} 件</Text>
+            <Text color={theme.fgFaint}>{t(`... 他 ${previewTasks.length - 12} 件`, `... and ${previewTasks.length - 12} more`)}</Text>
           )}
           <Box marginTop={0}>
             <Text color={theme.fg} bold>Enter</Text>
-            <Text color={theme.fgMute}> で承認して Issue 起票 · </Text>
+            <Text color={theme.fgMute}>{t(' で承認して Issue 起票 · ', ' to approve and create Issues · ')}</Text>
             <Text color={theme.fg} bold>c</Text>
-            <Text color={theme.fgMute}> で中止</Text>
+            <Text color={theme.fgMute}>{t(' で中止', ' to cancel')}</Text>
           </Box>
         </Box>
       )}
@@ -436,11 +437,11 @@ export const RunScreen: React.FC<Props> = ({ runFn, onComplete }) => {
       {/* Phase 2 start prompt */}
       {ecoState.phase === 'awaiting_approval' && !phase2Started && (
         <Box paddingX={2} paddingY={0} borderTop borderStyle="single" borderColor={theme.accent}>
-          <Text color={theme.accent} bold>▶ Phase 1 完了 · </Text>
+          <Text color={theme.accent} bold>{t('▶ Phase 1 完了 · ', '▶ Phase 1 complete · ')}</Text>
           <Text color={theme.fg} bold>Enter</Text>
-          <Text color={theme.fgMute}> で Phase 2 (実装) を開始 · </Text>
+          <Text color={theme.fgMute}>{t(' で Phase 2 (実装) を開始 · ', ' to start Phase 2 (implementation) · ')}</Text>
           <Text color={theme.fg} bold>q</Text>
-          <Text color={theme.fgMute}> で終了</Text>
+          <Text color={theme.fgMute}>{t(' で終了', ' to quit')}</Text>
         </Box>
       )}
 

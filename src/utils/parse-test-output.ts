@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 export interface TestFailureSummary {
   failedFiles: string[];
   failedTests: Array<{ name: string; error: string }>;
@@ -57,22 +59,22 @@ export function formatTestFailureComment(summary: TestFailureSummary, rawOutput:
     return rawOutput.slice(0, 3000);
   }
 
-  const parts: string[] = [`**${summary.totalFailed} 件のテストが失敗しました**`];
+  const parts: string[] = [t(`**${summary.totalFailed} 件のテストが失敗しました**`, `**${summary.totalFailed} test(s) failed**`)];
 
   if (summary.failedFiles.length > 0) {
-    parts.push(`\n**失敗ファイル:**`);
+    parts.push(t(`\n**失敗ファイル:**`, `\n**Failed files:**`));
     summary.failedFiles.forEach(f => parts.push(`- \`${f}\``));
   }
 
   if (summary.failedTests.length > 0) {
     const showTests = summary.failedTests.slice(0, 8);
-    parts.push(`\n**失敗テスト:**`);
+    parts.push(t(`\n**失敗テスト:**`, `\n**Failed tests:**`));
     showTests.forEach(t => {
       parts.push(`\n**${t.name}**`);
       if (t.error) parts.push(`\`\`\`\n${t.error.slice(0, 400)}\n\`\`\``);
     });
     if (summary.failedTests.length > 8) {
-      parts.push(`\n*...他 ${summary.failedTests.length - 8} 件*`);
+      parts.push(t(`\n*...他 ${summary.failedTests.length - 8} 件*`, `\n*...and ${summary.failedTests.length - 8} more*`));
     }
   }
 

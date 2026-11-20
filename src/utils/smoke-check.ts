@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import { createServer } from 'net';
 import http from 'http';
 import { killProcessTree } from './process-tree.js';
+import { t } from './i18n.js';
 
 export interface SmokeCheckResult {
   status: 'passed' | 'failed' | 'skipped';
@@ -79,27 +80,27 @@ export async function runSmokeCheck(opts: {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (spawnError) {
-        return { status: 'failed', summary: `起動コマンドを実行できない: ${commandLine}`, details: String(spawnError) };
+        return { status: 'failed', summary: t(`起動コマンドを実行できない: ${commandLine}`, `Cannot run the start command: ${commandLine}`), details: String(spawnError) };
       }
       for (const host of ['127.0.0.1', '::1']) {
         const res = await get(host, port, path);
         if (!res) continue;
         if (res.status >= 200 && res.status < 400) {
-          return { status: 'passed', summary: `起動確認通過: GET ${path} -> ${res.status}（PORT=${port}）` };
+          return { status: 'passed', summary: t(`起動確認通過: GET ${path} -> ${res.status}（PORT=${port}）`, `Smoke check passed: GET ${path} -> ${res.status} (PORT=${port})`) };
         }
         return {
           status: 'failed',
-          summary: `起動確認失敗: GET ${path} が ${res.status} を返した（PORT=${port}）`,
+          summary: t(`起動確認失敗: GET ${path} が ${res.status} を返した（PORT=${port}）`, `Smoke check failed: GET ${path} returned ${res.status} (PORT=${port})`),
           details: `response body:\n${res.body.slice(0, 1000)}\n\napp output:\n${tail()}`,
         };
       }
       if (exitCode !== undefined) {
         if (exitCode === 0) {
-          return { status: 'skipped', summary: `ポートを開かずに正常終了したため Web アプリではないと判断（${commandLine}）` };
+          return { status: 'skipped', summary: t(`ポートを開かずに正常終了したため Web アプリではないと判断（${commandLine}）`, `Exited normally without opening a port, so treated as not a web app (${commandLine})`) };
         }
         return {
           status: 'failed',
-          summary: `起動確認失敗: ${commandLine} が終了コード ${exitCode} で終了した`,
+          summary: t(`起動確認失敗: ${commandLine} が終了コード ${exitCode} で終了した`, `Smoke check failed: ${commandLine} exited with code ${exitCode}`),
           details: tail(),
         };
       }
@@ -107,7 +108,10 @@ export async function runSmokeCheck(opts: {
     }
     return {
       status: 'failed',
-      summary: `起動確認失敗: ${Math.round(timeoutMs / 1000)} 秒以内に PORT=${port} で応答しなかった（アプリは環境変数 PORT で待ち受ける必要がある）`,
+      summary: t(
+        `起動確認失敗: ${Math.round(timeoutMs / 1000)} 秒以内に PORT=${port} で応答しなかった（アプリは環境変数 PORT で待ち受ける必要がある）`,
+        `Smoke check failed: no response on PORT=${port} within ${Math.round(timeoutMs / 1000)} s (the app must listen on the PORT environment variable)`
+      ),
       details: tail(),
     };
   } finally {

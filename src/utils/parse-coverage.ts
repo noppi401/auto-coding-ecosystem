@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 export interface CoverageSummary {
   lines: number;
   branches: number;
@@ -33,7 +35,7 @@ export function formatCoverageComment(
   const branchOk = summary.branches >= branchThreshold;
 
   const rows = [
-    `| 指標 | 実測値 | 閾値 | 結果 |`,
+    t(`| 指標 | 実測値 | 閾値 | 結果 |`, `| Metric | Actual | Threshold | Result |`),
     `|------|--------|------|------|`,
     `| Lines | ${summary.lines.toFixed(1)}% | ${lineThreshold}% | ${lineOk ? '✓' : '✗'} |`,
     `| Branches | ${summary.branches.toFixed(1)}% | ${branchThreshold}% | ${branchOk ? '✓' : '✗'} |`,
@@ -42,8 +44,8 @@ export function formatCoverageComment(
   ].join('\n');
 
   const header = lineOk && branchOk
-    ? '**カバレッジ: 閾値クリア**'
-    : '**カバレッジ: 閾値未満**（テストを追加してカバレッジを改善してください）';
+    ? t('**カバレッジ: 閾値クリア**', '**Coverage: threshold met**')
+    : t('**カバレッジ: 閾値未満**（テストを追加してカバレッジを改善してください）', '**Coverage: below threshold** (add tests to improve coverage)');
 
   return `${header}\n\n${rows}`;
 }

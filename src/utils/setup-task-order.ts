@@ -1,4 +1,6 @@
-const CONFIG_FILE = /^(?:package\.json|package-lock\.json|\.gitignore|\.npmrc|\.nvmrc|README(?:\.[a-z]+)?|tsconfig(?:\.[\w-]+)?\.json|\.editorconfig|\.eslintrc(?:\.\w+)?|\.prettierrc(?:\.\w+)?)$/i;
+import { t } from './i18n.js';
+
+const CONFIG_FILE =/^(?:package\.json|package-lock\.json|\.gitignore|\.npmrc|\.nvmrc|README(?:\.[a-z]+)?|tsconfig(?:\.[\w-]+)?\.json|\.editorconfig|\.eslintrc(?:\.\w+)?|\.prettierrc(?:\.\w+)?)$/i;
 
 /**
  * package.json（test script）を作るタスクを先頭に置く。
@@ -17,7 +19,10 @@ export function moveSetupTaskFirst<T extends { title: string; targetFiles: strin
   if (!onlyConfig) {
     return {
       tasks,
-      warning: `package.json を作るタスク「${task.title}」が ${index + 1} 番目にあり、実装ファイルも含むため先頭に移せません。それまでのタスクは node --test で直接テストします。`,
+      warning: t(
+        `package.json を作るタスク「${task.title}」が ${index + 1} 番目にあり、実装ファイルも含むため先頭に移せません。それまでのタスクは node --test で直接テストします。`,
+        `The task that creates package.json ("${task.title}") is at position ${index + 1} and also includes implementation files, so it cannot be moved first. Earlier tasks are tested directly with node --test.`
+      ),
     };
   }
   return { tasks: [task, ...tasks.slice(0, index), ...tasks.slice(index + 1)], moved: task.title };
