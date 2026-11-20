@@ -325,6 +325,19 @@ describe('BaseAgent', () => {
       expect(() => (agent as any).robustJsonParse('not json at all')).toThrow();
     });
 
+    it('前置きの説明文に { } が含まれていても、後ろの ```json ブロックの JSON を取り出す（run 32 の FixAgent 応答）', () => {
+      const input = [
+        '**Root cause**: `src/index.js` requires `{ createTodoStorage }` from `./storage/todos`, but only `{ TodoStorage }` is exported.',
+        '',
+        '```json',
+        '{"files": [{"path": "src/storage/todos.js", "hunks": []}], "commitMessage": "fix: export factory"}',
+        '```',
+      ].join('\n');
+      const result = (agent as any).robustJsonParse(input);
+      expect(result.commitMessage).toBe('fix: export factory');
+      expect(result.files[0].path).toBe('src/storage/todos.js');
+    });
+
     it('二重エスケープされた JSON をパースできる', () => {
       const input = '{\\"key\\": \\"value\\"}';
       const result = (agent as any).robustJsonParse(input);

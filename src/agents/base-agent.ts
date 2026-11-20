@@ -636,6 +636,14 @@ export class BaseAgent {
         } catch { /* ignore */ }
       }
 
+      // 2c. フォールバック: 前置きの説明文に { } がある（例: `{ createTodoStorage }`）と上の切り出しは失敗する。
+      // コードブロックの中身を順にパースし、最初に成功したものを採用する
+      for (const block of input.matchAll(/```(?:json)?[ \t]*\r?\n([\s\S]*?)\r?\n?```/g)) {
+        try {
+          return JSON.parse(block[1].trim());
+        } catch { /* 次のブロックへ */ }
+      }
+
       // 3. フォールバック: 二重エスケープ（\" など）のハンドリング
       if (cleaned.includes('\\"')) {
         try {
