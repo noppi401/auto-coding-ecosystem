@@ -343,6 +343,29 @@ describe('Orchestrator', () => {
       });
     });
 
+    it('要件定義・設計書と検証レポートを state.json と同じディレクトリに保存し、cwd には書かない', async () => {
+      const { promises: fs } = await import('fs');
+      const cwdDir = join(process.cwd(), '.ecosystem');
+      const files = ['requirements.md', 'design.md', 'requirements-validation.md', 'design-validation.md'];
+      const cwdBefore = await Promise.all(
+        files.map((f) => fs.stat(join(cwdDir, f)).then((s) => s.mtimeMs).catch(() => null))
+      );
+
+      const orchestrator = new Orchestrator(statePath);
+      const state = await orchestrator.runPhase1('Build a web app', 'owner', 'repo');
+
+      const docsDir = join(statePath, '..');
+      expect(await fs.readFile(join(docsDir, 'requirements.md'), 'utf-8')).toBe(state.requirementsDoc);
+      expect(await fs.readFile(join(docsDir, 'design.md'), 'utf-8')).toBe(state.designDoc);
+      await expect(fs.access(join(docsDir, 'requirements-validation.md'))).resolves.toBeUndefined();
+      await expect(fs.access(join(docsDir, 'design-validation.md'))).resolves.toBeUndefined();
+
+      const cwdAfter = await Promise.all(
+        files.map((f) => fs.stat(join(cwdDir, f)).then((s) => s.mtimeMs).catch(() => null))
+      );
+      expect(cwdAfter).toEqual(cwdBefore);
+    });
+
     it('confirmTasks が承認した場合は tasks:set まで到達する', async () => {
       const orchestrator = new Orchestrator(statePath);
       const confirmTasks = vi.fn().mockResolvedValue(true);

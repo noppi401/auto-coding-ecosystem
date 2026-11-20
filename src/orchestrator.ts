@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import { randomUUID } from 'crypto';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 import { StateManager } from './state/manager.js';
 import { ProjectState, ReviewComment, ReviewResult, SourceIssue, Task, TaskCheckResult } from './state/types.js';
 import { logger } from './utils/logger.js';
@@ -87,9 +87,12 @@ export class Orchestrator {
   private stateManager: StateManager;
   private githubAgent: GitHubAgent;
   private maxReviewIterations: number;
+  // 要件定義・設計書などの Markdown は state.json と同じディレクトリに保存する
+  private docsDir: string;
 
   constructor(statePath: string = '.ecosystem/state.json') {
     this.stateManager = new StateManager(statePath);
+    this.docsDir = dirname(statePath);
     this.githubAgent = new GitHubAgent();
     this.maxReviewIterations = parseInt(
       process.env.MAX_REVIEW_ITERATIONS || '5'
@@ -1153,9 +1156,9 @@ export class Orchestrator {
     const requirementsDoc = this._buildSourceIssueRequirementsDoc(sourceIssues, instruction);
     const designDoc = this._buildSourceIssueDesignDoc(sourceIssues, repositoryContext);
 
-    await this._saveMarkdown('.ecosystem/requirements.md', requirementsDoc);
+    await this._saveMarkdown('requirements.md', requirementsDoc);
     await this.stateManager.updateRequirementsDoc(requirementsDoc);
-    await this._saveMarkdown('.ecosystem/design.md', designDoc);
+    await this._saveMarkdown('design.md', designDoc);
     await this.stateManager.updateDesignDoc(designDoc);
 
     const taskPlanner = new TaskDecompAgent();
@@ -2202,14 +2205,14 @@ ${context}
     let doc = await this._generateRequirementsDoc(reqAgent, instruction, repositoryContext);
 
     for (let iter = 1; iter <= VALIDATION_MAX_ITERATIONS; iter++) {
-      await this._saveMarkdown('.ecosystem/requirements.md', doc);
+      await this._saveMarkdown('requirements.md', doc);
 
       const validation = await validationAgent.validate(doc, instruction);
       const reportMd = this._buildValidationMarkdown(
         t(`要件妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`, `Requirements validation report (attempt ${iter}/${VALIDATION_MAX_ITERATIONS})`),
         validation
       );
-      await this._saveMarkdown('.ecosystem/requirements-validation.md', reportMd);
+      await this._saveMarkdown('requirements-validation.md', reportMd);
 
       logger.info(
         t(`要件妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`, `Requirements validation score (attempt ${iter}): ${validation.score} (${validation.grade})`),
@@ -2317,14 +2320,14 @@ ${context}
     let doc = await designAgent.generateDesign(requirementsDoc, repositoryContext);
 
     for (let iter = 1; iter <= VALIDATION_MAX_ITERATIONS; iter++) {
-      await this._saveMarkdown('.ecosystem/design.md', doc);
+      await this._saveMarkdown('design.md', doc);
 
       const validation = await validationAgent.validate(doc, requirementsDoc);
       const reportMd = this._buildValidationMarkdown(
         t(`設計書妥当性検証レポート（試行 ${iter}/${VALIDATION_MAX_ITERATIONS}）`, `Design validation report (attempt ${iter}/${VALIDATION_MAX_ITERATIONS})`),
         validation
       );
-      await this._saveMarkdown('.ecosystem/design-validation.md', reportMd);
+      await this._saveMarkdown('design-validation.md', reportMd);
 
       logger.info(
         t(`設計書妥当性スコア（試行${iter}）: ${validation.score}点 (${validation.grade})`, `Design validation score (attempt ${iter}): ${validation.score} (${validation.grade})`),
@@ -2362,14 +2365,14 @@ ${context}
     return doc;
   }
 
-  private async _saveMarkdown(relativePath: string, content: string): Promise<void> {
+  private async _saveMarkdown(fileName: string, content: string): Promise<void> {
+    const filePath = join(this.docsDir, fileName);
     try {
-      const absPath = `${process.cwd()}/${relativePath}`;
-      await fs.mkdir(dirname(absPath), { recursive: true });
-      await fs.writeFile(absPath, content, 'utf-8');
-      logger.info(`Saved Markdown: ${relativePath}`);
+      await fs.mkdir(this.docsDir, { recursive: true });
+      await fs.writeFile(filePath, content, 'utf-8');
+      logger.info(`Saved Markdown: ${filePath}`);
     } catch (err) {
-      logger.warn(`Failed to save Markdown: ${relativePath}`, String(err));
+      logger.warn(`Failed to save Markdown: ${filePath}`, String(err));
     }
   }
 
