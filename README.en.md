@@ -6,6 +6,136 @@ Auto Coding Ecosystem, abbreviated **ACE** and pronounced "ace", is a locally-ex
 
 > First-time users: open the illustrated HTML guide [`docs/guide.html`](docs/guide.html) in your browser for a visual walkthrough.
 
+**Language:** the UI and everything ACE writes (PR comments, validation reports, Issues) are in Japanese by default. Set `ACE_LANG=en` in `.env` to switch them to English. The screenshots below show English mode.
+
+## Screenshots
+
+### Home Menu (`npm run dev`)
+
+```text
+ ▲  Auto Coding Ecosystem
+
+ ◆  What would you like to do?
+ │  ● New request              Create a new request
+ │  ○ Run from Issue           Run from open Issues in an existing repository
+ │  ○ Resume Phase 2  (myorg/my-app)  Resume an in-progress coding loop
+ │  ○ Phase 1 only             Plan only (create Issues and stop)
+ │  ○ Show status              Show current project status
+ │  ○ Quit
+ └
+```
+
+### Request Wizard (New request)
+
+```text
+ ◆  Project type
+ │  ● Create a new repository    Create and implement in a new repository
+ │  ○ Modify an existing repository    Add features or fix an existing repository
+ └
+
+ ◆  New repository name
+ │  my-new-app
+ └
+
+ ◆  How to enter your request
+ │  ● Single line input          For short instructions
+ │  ○ Multi-line editor input    Open $EDITOR / notepad with multi-line support
+ │  ○ Load from file             .md / .txt / .html (PDF not supported)
+ └
+
+ ◆  Which phase(s) would you like to run?
+ │  ● Phase 1 + 2  (plan → implement automatically)  Recommended
+ │  ○ Phase 1 only  (plan only, create Issues)
+ │  ○ Phase 2 only  (resume from existing plan)
+ └
+
+ ◆  AI provider (primary)
+ │  ● Claude   Anthropic Claude CLI
+ │  ○ Codex    OpenAI Codex CLI
+ │  ○ Gemini   Google Gemini CLI
+ └
+
+ ◇  Ready · myorg/my-new-app · phase1+2 · claude→codex
+```
+
+### Run Screen (Phase 2 Coding Loop)
+
+```text
+▲ Auto Coding Ecosystem · myorg/my-app · Phase 2 · Coding Loop · ⣷ Running · 00:03:42
+────────────────────────────────────────────────────────────────────────────────────────
+ #1 ✓ Project setup                    │ Task 4/6 · Issue #7 · Implement the list command
+ #2 ✓ Implement the persistence layer  │ ────────────────────────────────────────────
+ #3 ✓ Implement the add command        │ [info]  CodingAgent: generating code...
+ #4 ⣷ Implement the list command       │ [info]  Running tsc --noEmit...
+ #5 ○ Implement complete/delete        │ [info]  Running npm test...
+ #6 ○ E2E tests and documentation      │ [info]  ReviewAgent: checking diff...
+                                       │ [info]  No blocking issues found.
+                                       │ [info]  GitHubAgent: merging PR #8...
+────────────────────────────────────────────────────────────────────────────────────────
+  ↑↓ Select task  ↵ Details  l Logs  p Pause  o Open PR  q Quit
+```
+
+### Task Approval Preview (before creating Issues)
+
+```text
+▲ Auto Coding Ecosystem · myorg/my-app · Phase 1 · Task Decomp · ⏸ Waiting for input · 00:01:12
+────────────────────────────────────────────────────────────────────────────────────────
+ ▶ Task breakdown (6) · review before creating Issues
+   1. Project setup [low]
+   2. Implement the persistence layer [medium]
+   3. Implement the add command [low]
+   4. Implement the list command [low]
+   5. Implement complete/delete [medium]
+   6. E2E tests and documentation [medium]
+   Enter to approve and create Issues · c to cancel
+────────────────────────────────────────────────────────────────────────────────────────
+```
+
+### Session Complete Screen (SummaryScreen)
+
+```text
+▲ Session complete · myorg/my-app · duration 00:18:45
+────────────────────────────────────────────────────────────────────────────────────────
+    6 merged      0 failed      0 skipped      0 pending
+  ██████████████████████████████████████████  100%
+
+──────────────────────────────────────────────────────────────────────────────────────
+ #  TASK                               STATUS        PR     ISSUE   ITER  CHECK
+ 1  Project setup                      ✓ merged      #2     #1      -     -
+ 2  Implement the persistence layer    ✓ merged      #4     #3      -     -
+ 3  Implement the add command          ✓ merged      #6     #5      -     -
+ 4  Implement the list command         ✓ merged      #8     #7      2/5   -
+ 5  Implement complete/delete          ✓ merged      #10    #9      -     -
+ 6  E2E tests and documentation        ✓ merged      #12    #11     -     -
+──────────────────────────────────────────────────────────────────────────────────────
+  REPOSITORY  https://github.com/myorg/my-app
+  ↑↓ Select  ↵ Run  l Logs  q Quit
+```
+
+### Status Check (`npm run dev -- status`)
+
+```text
+Project   : myorg/my-app
+Repo      : https://github.com/myorg/my-app
+Phase     : coding_loop
+Instruction: Build a task management CLI in Node.js. Support adding, listing, completing...
+Progress  : [████████░░░░░░░░░░░░░░░░] 33%  (2/6)
+Summary   : merged 2  in-progress 1  pending 3  skipped 0  failed 0
+
+#   TASK                                 STATUS       ISSUE   PR     AGE     DETAIL
+---------------------------------------------------------------------------------------------
+1   Project setup                        merged       #1      #2     45m00s  -
+2   Implement the persistence layer      merged       #3      #4     32m18s  -
+3   Implement the add command            in-progress  #5      #6     03m41s  -
+4   Implement the list command           pending      #7      -      0s      -
+5   Implement complete/delete            pending      #9      -      0s      -
+6   E2E tests and documentation          pending      #11     -      0s      -
+
+Links:
+  1. Project setup  issue https://github.com/myorg/my-app/issues/1  pr https://github.com/myorg/my-app/pull/2
+  ...
+```
+
 ## How It Works (Pipeline and Agent Architecture)
 
 The Orchestrator calls each agent in sequence; state is saved to `.ecosystem/state.json` (via `StateManager`). Each agent extends `BaseAgent`, which handles LLM provider calls, fallback logic, and usage-limit detection in a shared implementation.
@@ -282,6 +412,7 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `ISSUE_RUN_ALL_LIMIT` | `1000` | Max Issues fetched when selecting "all open Issues" |
 | `PHASE2_LOOP_MAX_ATTEMPTS` | `100` | Max attempts for `--loop-until-limit` |
 | `LOG_LEVEL` | `info` | Log level |
+| `ACE_LANG` | `ja` (`en` if `LANG` starts with `en`) | Language of the UI and of everything ACE writes (PR comments, validation reports, Issues). `en` for English |
 
 ## Development Commands
 

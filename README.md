@@ -410,6 +410,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `ISSUE_RUN_ALL_LIMIT` | `1000` | `Run from Issue` の全件実行で取得する open Issue の最大件数 |
 | `PHASE2_LOOP_MAX_ATTEMPTS` | `100` | `--loop-until-limit` の最大試行回数 |
 | `LOG_LEVEL` | `info` | ログレベル |
+| `ACE_LANG` | `ja`（`LANG` が `en` で始まる場合は `en`） | 画面と、ACE が書く文章（PR コメント・検証レポート・Issue）の言語。`en` で英語 |
 
 ## 開発コマンド
 
