@@ -2,7 +2,8 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { bus, LogEvent, LogLevel, LogSource } from '../events.js';
 
-const LOG_PATH = '.ecosystem/log/current.jsonl';
+// テストでは vitest.config.ts が一時ディレクトリを指定し、実行ディレクトリのログに追記しない
+const LOG_PATH = process.env.ECOSYSTEM_LOG_PATH || '.ecosystem/log/current.jsonl';
 
 export const isPlainMode = (): boolean =>
   process.argv.includes('--plain') || !process.stdout.isTTY;
