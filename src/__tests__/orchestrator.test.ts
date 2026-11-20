@@ -916,6 +916,35 @@ describe('Orchestrator', () => {
         expect(check?.status).toBe('passed');
       });
 
+      it('受け入れタスクで、起動ファイルからどこからも読み込まれないソースファイルを blocking にする', async () => {
+        // run 34: 本物の画面 html-template.js が未接続で、GET / は仮置きの HTML のままだった
+        process.env.BUILD_CHECK_ENABLED = 'true';
+        const { orchestrator, state, task } = await prepareTaskState();
+        task.kind = 'acceptance';
+        const sources: Record<string, string> = {
+          'package.json': JSON.stringify({ scripts: { test: 'node --test', start: 'node src/server.js' } }),
+          'src/server.js': "require('./handlers');",
+          'src/handlers.js': 'module.exports = {};',
+          'src/html-template.js': 'module.exports = { getHtmlTemplate() {} };',
+          'test/server.test.js': "require('../src/server');",
+        };
+        mockGitHubAgent.readFiles.mockImplementation(async (_o: string, _r: string, _b: string, paths: string[]) =>
+          Object.fromEntries(paths.filter((p) => p in sources).map((p) => [p, sources[p]]))
+        );
+        mockGitHubAgent.runCommandInWorktree.mockImplementation(async (_o: string, _r: string, _b: string, cmd: string) => ({
+          stdout: cmd === 'git' ? Object.keys(sources).join('\n') : '', stderr: '', exitCode: 0, timedOut: false,
+        }));
+        mockGitHubAgent.runSmokeCheckInWorktree.mockResolvedValue({ status: 'passed', summary: 'GET / -> 200' });
+
+        const comments = await orchestrator._runBuildCheck(mockGitHubAgent, state, task);
+
+        const unconnected = comments.filter((c: any) => c.severity === 'blocking' && c.body.includes('未接続のモジュール'));
+        expect(unconnected.map((c: any) => c.path)).toEqual(['src/html-template.js']);
+        const { StateManager } = await import('../state/manager.js');
+        const saved = await new StateManager(statePath).load();
+        expect(saved?.tasks[0].lastChecks?.find((c) => c.name === 'reachability')?.status).toBe('failed');
+      });
+
       it('通常のタスクでは起動確認を実行しない', async () => {
         const { check } = await runGate(undefined, { status: 'failed', summary: 'x' });
         expect(mockGitHubAgent.runSmokeCheckInWorktree).not.toHaveBeenCalled();

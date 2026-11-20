@@ -29,6 +29,7 @@ import { modifiedFilesInDiff } from './utils/modified-files.js';
 import { entryFileFromStartScript } from './utils/smoke-check.js';
 import { checkJsSyntax } from './utils/js-syntax-check.js';
 import { localDependencies } from './utils/local-deps.js';
+import { findUnreachableModules } from './utils/unreachable-modules.js';
 
 // レビュー・修正で常に参照させるプロジェクト設定（モジュール方式・ビルド・スクリプトの前提を誤解させないため）
 const PROJECT_CONFIG_FILES = ['package.json', 'tsconfig.json'];
@@ -386,6 +387,60 @@ export class Orchestrator {
     const deps = localDependencies(Object.entries(files).map(([path, content]) => ({ path, content })), tracked);
     if (deps.length === 0) return {};
     return this.githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, deps);
+  }
+
+  /**
+   * 起動ファイルから require / import をたどり、どこからも読み込まれないソースファイルを blocking にする（受け入れタスクのみ）。
+   * （run 34: 本物の画面 html-template.js と検証用の utils.js がどこからも読み込まれず、GET / は仮置きの HTML のままだった）
+   */
+  private async _runReachabilityCheck(
+    githubAgent: GitHubAgent,
+    state: ProjectState,
+    task: Task,
+    comments: ReviewComment[],
+    entry: string | undefined
+  ): Promise<void> {
+    if (!entry) {
+      await this._recordTaskCheck(task, {
+        name: 'reachability',
+        status: 'skipped',
+        summary: 'start script から起動ファイルを特定できないため、未接続モジュールの検出を未実行',
+      });
+      return;
+    }
+    const ls = await githubAgent.runCommandInWorktree(
+      state.githubOwner, state.githubRepo, task.branchName, 'git', ['ls-files'], 30000
+    );
+    const jsPaths = (ls?.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => /\.[cm]?[jt]sx?$/i.test(l));
+    const contents = jsPaths.length > 0
+      ? await githubAgent.readFiles(state.githubOwner, state.githubRepo, task.branchName, jsPaths)
+      : {};
+    const unreachable = findUnreachableModules(entry, contents);
+    if (unreachable.length === 0) {
+      await this._recordTaskCheck(task, {
+        name: 'reachability',
+        status: 'passed',
+        summary: `すべてのソースファイルが起動ファイル ${entry} から読み込まれている`,
+      });
+      return;
+    }
+
+    logger.warn('Source files not reachable from the entry point', unreachable.join(', '));
+    await this._recordTaskCheck(task, {
+      name: 'reachability',
+      status: 'failed',
+      summary: `起動ファイル ${entry} から読み込まれていないソースファイルが ${unreachable.length} 件`,
+      severity: 'blocking',
+      details: unreachable.join('\n'),
+    });
+    for (const path of unreachable) {
+      comments.push({
+        path,
+        line: 1,
+        body: `**未接続のモジュール**\n\n\`${path}\` は、起動ファイル \`${entry}\` から \`require\` / \`import\` をたどっても読み込まれていません。作った機能がアプリに組み込まれていない（例: 本物の画面があるのに仮置きの HTML を返している、検証関数があるのに別に書き直している）可能性があります。必要なら呼び出し側で読み込んで使い、不要なら削除してください。`,
+        severity: 'blocking',
+      });
+    }
   }
 
   /**
@@ -1806,6 +1861,7 @@ ${repositoryContext || '(repository context was not loaded)'}
           logger.info('Smoke check', smoke.summary);
         }
       }
+      await this._runReachabilityCheck(githubAgent, state, task, comments, entryFileFromStartScript(startScript));
     }
 
     // Coverage check (opt-in via COVERAGE_CHECK_ENABLED=true)
