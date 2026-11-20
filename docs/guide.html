@@ -235,7 +235,7 @@
       </div>
       <div class="agent plan">
         <div class="role"><span class="ja">計画</span><span class="en">Planning</span></div><h4>TaskDecompAgent</h4>
-        <p><span class="ja">設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）と書くべきテストファイル一覧（<code>testFiles</code>）を付与。</span><span class="en">Decomposes design into implementable tasks. Assigns complexity (low/medium/high) and a <code>testFiles</code> list to each task.</span></p>
+        <p><span class="ja">設計を実装可能なタスクへ分解。各タスクに複雑度（low/medium/high）と、そのタスク専用の小さなテストファイル（<code>testFiles</code>）を付与。最後に受け入れタスクを自動で追加する。</span><span class="en">Decomposes design into implementable tasks. Assigns complexity (low/medium/high) and the task's own small test file (<code>testFiles</code>) to each task. An acceptance task is appended automatically at the end.</span></p>
       </div>
       <div class="agent infra">
         <div class="role"><span class="ja">トークン削減</span><span class="en">Token reduction</span></div><h4>RepoContextSummaryAgent</h4>
@@ -243,11 +243,15 @@
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>CodingAgent</h4>
-        <p><span class="ja">タスクごとにコードとテストファイルを生成。複雑度に応じて実装モデルを自動選択可能。テストファイルが未生成の場合はリトライして確実に出力する。</span><span class="en">Generates code and test files per task. Auto-selects implementation model by complexity. Automatically retries if no test files are produced.</span></p>
+        <p><span class="ja">タスクごとにコードとテストファイルを生成。設定ファイル・ファイル一覧・他タスクの計画と対象ファイルの全文を見て、既存ファイルは差分（hunk）で変更する。複雑度に応じて実装モデルを自動選択可能。テストファイルが未生成の場合はリトライして確実に出力する。</span><span class="en">Generates code and test files per task. Sees the config files, the file list, the plan for the other tasks, and the full target files, and changes existing files with diffs (hunks). Auto-selects implementation model by complexity. Automatically retries if no test files are produced.</span></p>
+      </div>
+      <div class="agent impl">
+        <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>AcceptanceTestAgent</h4>
+        <p><span class="ja">受け入れタスク専用。実装を見ずに要件だけから、実際に起動したアプリへ HTTP でアクセスする受け入れテストを書く。</span><span class="en">For the acceptance task only. Writes acceptance tests from the requirements alone, without seeing the implementation; the tests talk to the real running app over HTTP.</span></p>
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>ReviewAgent</h4>
-        <p><span class="ja">PR の差分をレビューし、blocking / suggestion の指摘を返す。</span><span class="en">Reviews the PR diff and returns blocking / suggestion findings.</span></p>
+        <p><span class="ja">PR の差分をレビューし、blocking / suggestion の指摘を返す。変更ファイルの全文・設定ファイル・変更ファイルが読み込むファイルも見て、呼び出し先との食い違いも確認する。</span><span class="en">Reviews the PR diff and returns blocking / suggestion findings. Also sees the full changed files, the config files, and the files they import, so it can check that calls match what they call.</span></p>
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>CodexAgent</h4>
@@ -255,7 +259,7 @@
       </div>
       <div class="agent impl">
         <div class="role"><span class="ja">実装</span><span class="en">Implementation</span></div><h4>FixAgent</h4>
-        <p><span class="ja">blocking 指摘を受けてコードを修正し、再コミットする。テストファイルの削除・<code>.skip</code> 追加・アサーション弱体化は禁止（Orchestrator が差分から自動検出してブロック）。</span><span class="en">Applies fixes for blocking findings and re-commits. Deleting test files, adding <code>.skip</code>, or weakening assertions is forbidden (Orchestrator auto-detects and blocks such changes in the diff).</span></p>
+        <p><span class="ja">blocking 指摘を受けてコードを修正し、再コミットする。テストファイルの削除・<code>.skip</code> 追加・アサーション弱体化は禁止（Orchestrator が差分から自動検出してブロック）。</span><span class="en">Applies fixes for blocking findings and re-commits. Deleting test files, adding <code>.skip</code>, or weakening assertions is forbidden (Orchestrator auto-detects and blocks such changes in the diff).</span> <span class="ja">見せていない既存ファイルの上書きもガードで止める。</span><span class="en">Overwriting existing files it was not shown is also blocked by a guard.</span></p>
       </div>
       <div class="agent infra">
         <div class="role"><span class="ja">連携</span><span class="en">Integration</span></div><h4>GitHubAgent</h4>
@@ -282,7 +286,7 @@
           <div class="arrow">→</div>
           <div class="step"><b>Design</b><span><span class="ja">設計生成＋採点ループ</span><span class="en">Generate + scoring loop</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b>TaskDecomp</b><span><span class="ja">タスク分解＋複雑度</span><span class="en">Decompose + complexity</span></span></div>
+          <div class="step"><b>TaskDecomp</b><span><span class="ja">タスク分解＋複雑度＋受け入れタスク</span><span class="en">Decompose + complexity + acceptance task</span></span></div>
           <div class="arrow">→</div>
           <div class="step"><b><span class="ja">承認 → Issue 起票</span><span class="en">Approve → Create Issues</span></b><span><span class="ja">一覧をプレビュー承認</span><span class="en">Preview and approve list</span></span></div>
         </div>
@@ -296,7 +300,7 @@
           <div class="arrow">→</div>
           <div class="step"><b>Coding</b><span><span class="ja">コード生成→コミット→PR</span><span class="en">Generate → commit → PR</span></span></div>
           <div class="arrow">→</div>
-          <div class="step"><b><span class="ja">ビルド/テスト</span><span class="en">Build/Test</span></b><span>tsc / npm test<br><span class="ja" style="font-size:.8em;color:var(--fg-dim)">失敗時は構造化フィードバック</span><span class="en" style="font-size:.8em;color:var(--fg-dim)">structured failure details</span></span></div>
+          <div class="step"><b><span class="ja">ビルド/テスト</span><span class="en">Build/Test</span></b><span>tsc / node --check / npm test<br><span class="ja" style="font-size:.8em;color:var(--fg-dim)">失敗時は構造化フィードバック</span><span class="en" style="font-size:.8em;color:var(--fg-dim)">structured failure details</span></span></div>
           <div class="arrow">→</div>
           <div class="step"><b>Review (+Codex)</b><span><span class="ja">差分レビュー</span><span class="en">Diff review</span></span></div>
           <div class="arrow">→</div>
@@ -304,7 +308,7 @@
           <div class="arrow">→</div>
           <div class="step"><b><span class="ja">マージ→Issue close</span><span class="en">Merge → close Issue</span></b><span><span class="ja">worktree 同期</span><span class="en">sync worktree</span></span></div>
         </div>
-        <div class="loop-note"><span class="ja">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。テスト削除・<code>.skip</code> 追加を差分から自動検出してブロック。</span><span class="en">※ Review → Fix loops up to <code>MAX_REVIEW_ITERATIONS</code> times until approved. Always "one active Issue/PR at a time." Test deletions and <code>.skip</code> additions are auto-detected from the diff and blocked.</span></div>
+        <div class="loop-note"><span class="ja">※ Review → Fix は承認されるまで最大 <code>MAX_REVIEW_ITERATIONS</code> 回ループ。常に「アクティブな Issue/PR は 1 つ」。テスト削除・<code>.skip</code> 追加・テストケースやアサーションの純減を差分から自動検出してブロック。最後の受け入れタスクでは、ゲートが実際にアプリを起動して <code>GET /</code> を確かめ（起動確認）、起動ファイルから読み込まれていないソースファイルも検出する。</span><span class="en">※ Review → Fix loops up to <code>MAX_REVIEW_ITERATIONS</code> times until approved. Always "one active Issue/PR at a time." Test deletions, <code>.skip</code> additions, and a net decrease in test cases or assertions are auto-detected from the diff and blocked. For the final acceptance task, the gate also starts the real app and checks <code>GET /</code> (smoke check), and detects source files the entry file never loads.</span></div>
       </div>
     </div>
     <div class="note"><span class="ja">利用上限（usage limit）に達した場合は <code>FALLBACK_LLM_PROVIDER</code> へ自動切替、または後から <code>--retry-failed</code> で再開できます。</span><span class="en">When the usage limit is reached, the system auto-switches to <code>FALLBACK_LLM_PROVIDER</code>, or you can resume later with <code>--retry-failed</code>.</span></div>
@@ -326,9 +330,9 @@
       <tbody>
         <tr>
           <td><b>Claude</b><br><span class="pill"><span class="ja">既定</span><span class="en">default</span></span></td>
-          <td><code>claude -p --model &lt;id&gt; --output-format json --dangerously-skip-permissions</code><span class="ja">（プロンプトは stdin）。<code>RESUME_AGENT_SESSIONS=true</code> 時は <code>--continue &lt;session_id&gt;</code> で会話を継続。</span><span class="en"> (prompt via stdin). With <code>RESUME_AGENT_SESSIONS=true</code>, continues conversation via <code>--continue &lt;session_id&gt;</code>.</span></td>
+          <td><code>claude -p --model &lt;id&gt; --output-format stream-json --verbose --tools= --strict-mcp-config --dangerously-skip-permissions</code><span class="ja">（プロンプトは stdin）。ツールと MCP は無効にし、結果は JSON のテキストとしてだけ受け取る。起動後に反応がなければ検知して呼び直す（<code>CLAUDE_STARTUP_TIMEOUT_MS</code>）。<code>RESUME_AGENT_SESSIONS=true</code> 時は <code>--continue &lt;session_id&gt;</code> で会話を継続。</span><span class="en"> (prompt via stdin). Tools and MCP are disabled; the result is taken only as JSON text. A silent start is detected and the call is retried (<code>CLAUDE_STARTUP_TIMEOUT_MS</code>). With <code>RESUME_AGENT_SESSIONS=true</code>, continues conversation via <code>--continue &lt;session_id&gt;</code>.</span></td>
           <td><code>PLANNING_CLAUDE_MODEL</code> / <code>IMPLEMENTATION_CLAUDE_MODEL</code></td>
-          <td>JSON (<code>result</code> / <code>session_id</code> / <code>is_error</code>)</td>
+          <td><span class="ja">NDJSON（最後の <code>result</code> イベントの <code>result</code> / <code>session_id</code> / <code>is_error</code>）</span><span class="en">NDJSON (<code>result</code> / <code>session_id</code> / <code>is_error</code> of the last <code>result</code> event)</span></td>
         </tr>
         <tr>
           <td><b>Codex</b></td>
@@ -363,7 +367,7 @@
 
     <h3>4.4 <span class="ja">連携・状態・検証</span><span class="en">Integration, State, and Verification</span></h3>
     <ul class="tight">
-      <li><b>GitHubAgent</b>: <span class="ja"><code>gh</code> CLI と git を用い、リポジトリ作成 / ブランチ / コミット / Issue / PR / マージ / コメントを実行。さらに <code>.ecosystem/worktrees/...</code> の作業ツリーで <code>tsc --noEmit</code> や <code>npm test</code> を回し、結果を「決定論的ゲート」としてレビューに反映。</span><span class="en">Uses <code>gh</code> CLI and git for repo creation / branch / commit / Issue / PR / merge / comments. Also runs <code>tsc --noEmit</code> and <code>npm test</code> in the <code>.ecosystem/worktrees/...</code> working tree; results feed into review as a "deterministic gate."</span></li>
+      <li><b>GitHubAgent</b>: <span class="ja"><code>gh</code> CLI と git を用い、リポジトリ作成 / ブランチ / コミット / Issue / PR / マージ / コメントを実行。さらに <code>.ecosystem/worktrees/...</code> の作業ツリーで <code>tsc --noEmit</code>・<code>node --check</code>・<code>npm test</code>（なければ <code>node --test</code>）と、受け入れタスクでは起動確認を回し、結果を「決定論的ゲート」としてレビューに反映。test script が一部のテストしか実行していない場合も検出する。</span><span class="en">Uses <code>gh</code> CLI and git for repo creation / branch / commit / Issue / PR / merge / comments. Also runs <code>tsc --noEmit</code>, <code>node --check</code>, and <code>npm test</code> (or <code>node --test</code> when there is none) in the <code>.ecosystem/worktrees/...</code> working tree, plus a smoke check for the acceptance task; results feed into review as a "deterministic gate." It also detects a test script that runs only some of the tests.</span></li>
       <li><b>StateManager</b>: <span class="ja">進行状態を <code>.ecosystem/state.json</code> へ逐次保存（要件・設計・タスク・各 PR/Issue・エージェントの session_id 等）。中断後の Resume はここから復元。</span><span class="en">Saves progress incrementally to <code>.ecosystem/state.json</code> (requirements, design, tasks, PR/Issue numbers, agent session_ids, etc.). Resume after interruption restores from here.</span></li>
       <li><b><span class="ja">イベントバス</span><span class="en">Event bus</span></b> (<code>src/events.ts</code>): <span class="ja">Orchestrator の進捗（phase 変化 / タスク更新 / ログ / タスク承認）を Ink UI へ配信。UI と実行ロジックは疎結合。</span><span class="en">Distributes Orchestrator progress (phase changes / task updates / logs / task approval) to the Ink UI. UI and execution logic are loosely coupled.</span></li>
     </ul>
@@ -471,6 +475,8 @@ npm run dev -- start ... --provider gemini --gemini-model gemini-2.5-flash</pre>
         <tr><td><code>CODEX_REVIEW_ENABLED</code></td><td><code>false</code></td><td><span class="ja">Codex の独立レビューを有効化</span><span class="en">Enable independent Codex review</span></td></tr>
         <tr><td><code>GEMINI_API_KEY</code> / <code>GEMINI_MODEL</code></td><td><code>gemini-2.5-flash</code></td><td><span class="ja">Gemini を provider に使う際の API キーと共通モデル</span><span class="en">API key and common model when using Gemini as provider</span></td></tr>
         <tr><td><code>RESUME_AGENT_SESSIONS</code></td><td><code>false</code></td><td><span class="ja">Claude セッション継続を使う</span><span class="en">Use Claude session continuation</span></td></tr>
+        <tr><td><code>ACCEPTANCE_TASK_ENABLED</code></td><td><code>true</code></td><td><span class="ja">タスク分解の最後に受け入れタスク（受け入れテストと起動確認）を自動追加する</span><span class="en">Append the acceptance task (acceptance tests and smoke check) after decomposition</span></td></tr>
+        <tr><td><code>ACE_LANG</code></td><td><code>ja</code></td><td><span class="ja">画面と、ACE が書く文章（PR コメント・検証レポート・Issue）の言語。<code>en</code> で英語</span><span class="en">Language of the UI and of everything ACE writes (PR comments, validation reports, Issues). <code>en</code> for English</span></td></tr>
       </tbody>
     </table>
     <p class="lead" style="margin-top:14px"><span class="ja">全変数とモデル指定の詳細は <a href="../README.md">README.md</a> を参照してください。</span><span class="en">See <a href="../README.en.md">README.en.md</a> for all variables and model specification details.</span></p>
@@ -483,7 +489,9 @@ npm run dev -- start ... --provider gemini --gemini-model gemini-2.5-flash</pre>
       <li><span class="ja">状態は <code>.ecosystem/state.json</code> に保存。途中で止めても <b>Resume Phase 2</b> で再開できる。</span><span class="en">State is saved to <code>.ecosystem/state.json</code>. Even if interrupted, you can resume with <b>Resume Phase 2</b>.</span></li>
       <li><span class="ja">確認用 worktree（<code>.ecosystem/worktrees/...</code>）に未コミット変更があると、安全のため自動同期が止まる。</span><span class="en">If the verification worktree (<code>.ecosystem/worktrees/...</code>) has uncommitted changes, auto-sync is paused for safety.</span></li>
       <li><span class="ja">Claude の利用上限に達したら、上限リセット後に <code>npm run dev -- phase2 --retry-failed</code> で再開。</span><span class="en">After Claude's usage limit resets, resume with <code>npm run dev -- phase2 --retry-failed</code>.</span></li>
+      <li><span class="ja">ACE の画面と出力を英語にするには、<code>.env</code> に <code>ACE_LANG=en</code> を設定する。</span><span class="en">To get the ACE UI and output in English, set <code>ACE_LANG=en</code> in <code>.env</code>.</span></li>
     </ul>
+    <p class="lead" style="margin-top:14px"><span class="ja">実際に ToDo アプリを生成させた検証の記録（実行時間・費用・スクリーンショット）: <a href="test-runs/2026-11-todo-app.md">test-runs/2026-11-todo-app.md</a></span><span class="en">Record of an actual run that generated a ToDo app (run time, cost, screenshot): <a href="test-runs/2026-11-todo-app.en.md">test-runs/2026-11-todo-app.en.md</a></span></p>
   </section>
 
 </div>
