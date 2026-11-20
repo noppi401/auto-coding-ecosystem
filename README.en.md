@@ -531,6 +531,10 @@ To start including initial setup:
 npm run start:all
 ```
 
+## Contributing
+
+Bug reports, feature requests, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## License
 
 [Apache License 2.0](LICENSE)

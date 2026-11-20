@@ -529,6 +529,10 @@ npm run start:dev
 npm run start:all
 ```
 
+## コントリビューション
+
+不具合の報告、要望、プルリクエストを歓迎します。[CONTRIBUTING.md](CONTRIBUTING.md) を参照してください。
+
 ## ライセンス
 
 [Apache License 2.0](LICENSE)

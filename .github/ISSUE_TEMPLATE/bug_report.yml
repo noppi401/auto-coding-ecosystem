@@ -1,0 +1,56 @@
+name: 不具合の報告 / Bug report
+description: ACE が期待どおりに動かなかったときに報告する / Report something that did not work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        報告ありがとうございます。日本語でも英語でもかまいません。
+        Thanks for the report. Japanese or English is fine.
+
+        **ログや出力を貼る前に、トークン・API キー・メールアドレスなどが含まれていないか確認してください。**
+        **Before pasting logs or output, remove any tokens, API keys, or email addresses.**
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 何が起きたか / What happened
+      description: どのフェーズ（Phase 1 / Phase 2）、どのエージェントやゲートで起きたかも書いてください / Include the phase and the agent or gate where it happened
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待した動作 / Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順 / Steps to reproduce
+      description: 実行したコマンドと、使った依頼文（instruction）を書いてください / The commands you ran and the request (instruction) you used
+      placeholder: |
+        1. npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: ログ・エラー出力 / Logs and error output
+      description: 画面の出力や .ecosystem/ 内の関連ファイルの抜粋 / Terminal output or excerpts from relevant files under .ecosystem/
+      render: text
+  - type: textarea
+    id: environment
+    attributes:
+      label: 環境 / Environment
+      description: 分かる範囲で / As much as you know
+      value: |
+        - OS:
+        - Node.js (`node -v`):
+        - ACE のコミットまたはバージョン / ACE commit or version:
+        - Claude Code CLI (`claude --version`):
+        - gh (`gh --version`):
+        - 使ったモデル・プロバイダー / Models and providers used:
+        - ACE_LANG:
+    validations:
+      required: true
