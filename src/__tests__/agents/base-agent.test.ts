@@ -240,6 +240,61 @@ describe('BaseAgent', () => {
       await expect(agent.invoke('test message')).rejects.toThrow('TerminalQuotaError');
     });
 
+    it('Claude の時間切れは、stdout に rate_limit_event があっても上限と判定せず、Codex に切り替えない', async () => {
+      const { CommandTimeoutError } = await import('../../agents/base-agent.js');
+      const agent = new BaseAgent('', 'FixAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+      // run（英語モード）で実際に出たエラーの形。週間の利用率 55% の通常の通知が stdout 末尾に入っている
+      const stdoutTail = JSON.stringify(
+        '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"seven_day","utilization":0.55}}\n'
+      );
+      execSpy.mockRejectedValueOnce(
+        new CommandTimeoutError(`Command timeout after 900s; stdoutBytes=1361 stdoutTail=${stdoutTail} stderr=""`)
+      );
+
+      await expect(agent.invoke('test message')).rejects.toBeInstanceOf(CommandTimeoutError);
+      expect(execSpy).toHaveBeenCalledTimes(1);
+    });
+
+    // run（英語モード）で実際に出た Codex の失敗の形。出力に送ったプロンプトのエコーが含まれる
+    const codexFailure = (errorLine: string) =>
+      new Error(
+        'Command failed with code 1: OpenAI Codex v0.167.0\n--------\nuser\n' +
+        'PROJECT RULES:\n- LLM usage limit → フォールバック先プロバイダーへ切り替え\n\nUSER MESSAGE:\ntest message\n' +
+        `${errorLine}\n`
+      );
+
+    it('Codex の失敗出力に含まれるプロンプトのエコーの "usage limit" では、上限と判定しない', async () => {
+      process.env.IMPLEMENTATION_LLM_PROVIDER = 'codex';
+      process.env.FALLBACK_LLM_PROVIDER = 'gemini';
+      const { LlmUsageLimitError } = await import('../../utils/llm-errors.js');
+      const agent = new BaseAgent('', 'CodingAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+      execSpy.mockRejectedValueOnce(
+        codexFailure("ERROR: The 'gpt-5.5' model is not supported when using Codex with a ChatGPT account.")
+      );
+
+      const error = await agent.invoke('test message').catch((e) => e);
+      expect(error).not.toBeInstanceOf(LlmUsageLimitError);
+      expect(String(error)).toContain('not supported');
+      expect(execSpy).toHaveBeenCalledTimes(1); // Gemini に切り替えていない
+    });
+
+    it('Codex 自身のエラー行が利用上限なら、プロンプトのエコーがあっても上限と判定して切り替える', async () => {
+      process.env.IMPLEMENTATION_LLM_PROVIDER = 'codex';
+      process.env.FALLBACK_LLM_PROVIDER = 'gemini';
+      const agent = new BaseAgent('', 'CodingAgent');
+      const execSpy = vi.spyOn(agent as any, '_execCommand');
+      execSpy
+        .mockRejectedValueOnce(codexFailure("ERROR: You've hit your usage limit. Try again later."))
+        .mockResolvedValueOnce(GEMINI_SUCCESS);
+
+      const result = await agent.invoke('test message');
+
+      expect(result).toBe('Hello from Gemini');
+      expect(execSpy).toHaveBeenCalledTimes(2);
+    });
+
     it('サポートされていないプロバイダーは例外をスローする', async () => {
       process.env.IMPLEMENTATION_LLM_PROVIDER = 'unsupported-provider';
       const agent = new BaseAgent('', 'CodingAgent'); // CodingAgent uses IMPLEMENTATION_LLM_PROVIDER
