@@ -17,6 +17,7 @@ import {
   isGeminiUsageLimitMessage,
   hasProviderLimitReached,
   markProviderLimitReached,
+  codexFailureText,
 } from '../utils/llm-errors.js';
 
 /** 起動後、最初の出力が期限内に来なかった（プロセスがハングした）ことを表す。リトライ対象。 */
@@ -24,6 +25,18 @@ export class StartupStallError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'StartupStallError';
+  }
+}
+
+/**
+ * コマンドが制限時間内に終わらなかったことを表す。利用上限ではない。
+ * メッセージには調査用に stdout の末尾を含むが、stream-json の rate_limit_event（通常の通知）などが
+ * 入るため、上限の判定に使ってはいけない。
+ */
+export class CommandTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CommandTimeoutError';
   }
 }
 
@@ -177,8 +190,10 @@ export class BaseAgent {
 
   private isProviderUsageLimitError(err: unknown, provider: LlmProvider): boolean {
     if (err instanceof LlmUsageLimitError) return true;
+    // 時間切れ・起動直後の無反応は上限ではない（メッセージ内の stdout 断片で誤判定させない）
+    if (err instanceof CommandTimeoutError || err instanceof StartupStallError) return false;
     switch (provider) {
-      case 'codex':  return isCodexUsageLimitMessage(err);
+      case 'codex':  return isCodexUsageLimitMessage(codexFailureText(err));
       case 'gemini': return isGeminiUsageLimitMessage(err);
       default:       return isClaudeUsageLimitMessage(err);
     }
@@ -266,7 +281,7 @@ export class BaseAgent {
       }
       return trimmed;
     } catch (err) {
-      if (isCodexUsageLimitMessage(err)) {
+      if (!(err instanceof CommandTimeoutError) && isCodexUsageLimitMessage(codexFailureText(err, prompt))) {
         throw new LlmUsageLimitError('codex', String(err));
       }
       throw err;
@@ -503,7 +518,7 @@ export class BaseAgent {
       const timeout = setTimeout(() => {
         clearTimeout(startupTimer);
         killProcessTree(child);
-        reject(new Error(`Command timeout after ${Math.round(timeoutMs / 1000)}s; ${diagnostics()}`));
+        reject(new CommandTimeoutError(`Command timeout after ${Math.round(timeoutMs / 1000)}s; ${diagnostics()}`));
       }, timeoutMs);
 
       // 起動後すぐ最初の出力が来るはずの呼び出し（stream-json の init）が無反応なら、ハングとして早期に打ち切る

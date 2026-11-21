@@ -43,6 +43,21 @@ export function isCodexUsageLimitMessage(value: unknown): boolean {
   return includesUsageLimitPattern(value);
 }
 
+/**
+ * Codex の失敗から、利用上限の判定に使う部分だけを取り出す。
+ * Codex の出力には送ったプロンプトのエコーが含まれ、そこに "usage limit" などの語があると
+ * 上限と誤判定するため、Codex 自身のエラー行（"ERROR: ..."）だけを見る。
+ * エラー行がなければ、プロンプトのエコーを除いた全体を見る。
+ */
+export function codexFailureText(err: unknown, prompt = ''): string {
+  const raw = String(err);
+  const errorLines = raw
+    .split(/\r?\n/)
+    .filter((line) => /^\s*(\[[^\]]*\]\s*)?ERROR\b/.test(line));
+  if (errorLines.length > 0) return errorLines.join('\n');
+  return prompt ? raw.split(prompt).join('') : raw;
+}
+
 export function isCodexUsageLimitError(value: unknown): boolean {
   return (
     value instanceof LlmUsageLimitError &&

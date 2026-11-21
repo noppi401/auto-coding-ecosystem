@@ -13,6 +13,7 @@ import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-o
 import {
   LlmUsageLimitError,
   isCodexUsageLimitMessage,
+  codexFailureText,
 } from '../utils/llm-errors.js';
 
 type CodexOperation = 'generateCode' | 'reviewPr' | 'fixCode';
@@ -179,7 +180,7 @@ Return ONLY valid JSON with this structure:
       }
       return trimmed;
     } catch (err) {
-      if (isCodexUsageLimitMessage(err)) {
+      if (isCodexUsageLimitMessage(codexFailureText(err, fullPrompt))) {
         throw new LlmUsageLimitError('codex', String(err));
       }
       throw err;
