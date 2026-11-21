@@ -238,7 +238,7 @@ export class BaseAgent {
 
     const prompt = [
       projectInstructions
-        ? `PROJECT RULES FROM CLAUDE.md:\n${projectInstructions}`
+        ? `PROJECT RULES:\n${projectInstructions}`
         : '',
       this.systemPrompt ? `SYSTEM PROMPT:\n${this.systemPrompt}` : '',
       `USER MESSAGE:\n${userMessage}`,
