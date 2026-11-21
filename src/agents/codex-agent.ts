@@ -146,7 +146,7 @@ Return ONLY valid JSON with this structure:
     const projectInstructions = await loadCodexProjectInstructions();
     const fullPrompt = [
       projectInstructions
-        ? `PROJECT RULES FROM CLAUDE.md:\n${projectInstructions}`
+        ? `PROJECT RULES:\n${projectInstructions}`
         : '',
       prompt,
     ].filter(Boolean).join('\n\n');

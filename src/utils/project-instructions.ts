@@ -9,7 +9,10 @@ export async function loadCodexProjectInstructions(): Promise<string> {
     return cachedProjectInstructions ?? '';
   }
 
-  const instructionFile = process.env.CODEX_PROJECT_RULES_FILE || 'CLAUDE.md';
+  // 既定は生成するプロジェクト向けの Codex 用ルール。ACE 自身の CLAUDE.md は ACE の開発用ルール
+  // （日本語で書く、.ecosystem の運用など）を含み、生成するプロジェクトには当てはまらないため使わない。
+  const instructionFile =
+    process.env.CODEX_PROJECT_RULES_FILE || join('prompts', 'codex-project-rules.md');
   const instructionPath = join(process.cwd(), instructionFile);
 
   try {

@@ -421,6 +421,7 @@ If the user explicitly specifies an implementation model via `--impl-model` or t
 | `CODEX_MODEL` | Codex CLI default | Model passed to Codex CLI |
 | `CODEX_INTELLIGENCE` | Codex CLI default | Codex CLI `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
 | `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent-specific timeout. Falls back to `AGENT_COMMAND_TIMEOUT_MS`, then `900000` |
+| `CODEX_PROJECT_RULES_FILE` | `prompts/codex-project-rules.md` | File with the code generation rules passed to Codex (relative to the working directory) |
 | `RESUME_AGENT_SESSIONS` | `false` | Use Claude session continuation |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent command timeout (ms). CodexAgent uses it when `CODEX_TIMEOUT_MS` is unset |
 | `CLAUDE_STARTUP_TIMEOUT_MS` | `120000` | How long to wait for the Claude CLI's first output after starting. The call is retried when exceeded |
