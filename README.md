@@ -419,7 +419,7 @@ npm run dev -- start --instruction-file ./instruction.txt --repo-name my-repo --
 | `CODEX_MODEL` | Codex CLI の既定値 | Codex CLI に渡すモデル |
 | `CODEX_INTELLIGENCE` | Codex CLI の既定値 | Codex CLI の `model_reasoning_effort` (`low` / `medium` / `high` / `xhigh`) |
 | `CODEX_TIMEOUT_MS` | `AGENT_COMMAND_TIMEOUT_MS` | CodexAgent 専用のタイムアウト。未指定時は `AGENT_COMMAND_TIMEOUT_MS`、さらに未指定なら `900000` を使う |
-| `CODEX_PROJECT_RULES_FILE` | `prompts/codex-project-rules.md` | Codex に渡すコード生成のルールのファイル（実行ディレクトリからの相対パス） |
+| `CODEX_PROJECT_RULES_FILE` | `prompts/codex-project-rules.md` | Codex に渡すコード生成のルールのファイル。相対パスは実行ディレクトリから解決する（絶対パスも可） |
 | `RESUME_AGENT_SESSIONS` | `false` | Claude セッション継続を使うか |
 | `AGENT_COMMAND_TIMEOUT_MS` | `900000` | BaseAgent 系コマンドのタイムアウト。`CODEX_TIMEOUT_MS` 未指定時は CodexAgent もこの値を使う |
 | `CLAUDE_STARTUP_TIMEOUT_MS` | `120000` | Claude CLI の起動後、最初の出力を待つ時間。超えたら呼び直す |
