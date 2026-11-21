@@ -1,5 +1,5 @@
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { logger } from './logger.js';
 
 let cachedProjectInstructions: string | null | undefined;
@@ -13,7 +13,8 @@ export async function loadCodexProjectInstructions(): Promise<string> {
   // （日本語で書く、.ecosystem の運用など）を含み、生成するプロジェクトには当てはまらないため使わない。
   const instructionFile =
     process.env.CODEX_PROJECT_RULES_FILE || join('prompts', 'codex-project-rules.md');
-  const instructionPath = join(process.cwd(), instructionFile);
+  // 相対パスは実行ディレクトリから解決する。絶対パスはそのまま使う
+  const instructionPath = resolve(process.cwd(), instructionFile);
 
   try {
     const content = await fs.readFile(instructionPath, 'utf-8');

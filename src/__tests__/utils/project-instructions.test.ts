@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { promises as fs } from 'fs';
-import { join, relative } from 'path';
+import { join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { isCodexUsageLimitMessage } from '../../utils/llm-errors.js';
@@ -43,12 +43,19 @@ describe('loadCodexProjectInstructions: Codex に渡すルール', () => {
     expect(isCodexUsageLimitMessage(await load())).toBe(false);
   });
 
-  it('CODEX_PROJECT_RULES_FILE を指定すると、そのファイル（実行ディレクトリからの相対パス）を渡す', async () => {
+  it('CODEX_PROJECT_RULES_FILE に絶対パスを指定すると、そのファイルを渡す（実行ディレクトリと別のドライブでもよい）', async () => {
     dir = join(tmpdir(), `ace-rules-${randomUUID()}`);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(join(dir, 'rules.md'), 'custom rule\n');
-    process.env.CODEX_PROJECT_RULES_FILE = relative(process.cwd(), join(dir, 'rules.md'));
+    process.env.CODEX_PROJECT_RULES_FILE = join(dir, 'rules.md');
 
     expect(await load()).toBe('custom rule');
+  });
+
+  it('CODEX_PROJECT_RULES_FILE に相対パスを指定すると、実行ディレクトリから解決する', async () => {
+    process.env.CODEX_PROJECT_RULES_FILE = join('prompts', 'codex-project-rules.md');
+    const expected = await fs.readFile(join(process.cwd(), 'prompts', 'codex-project-rules.md'), 'utf-8');
+
+    expect(await load()).toBe(expected.trim());
   });
 });
