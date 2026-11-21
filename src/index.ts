@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { config } from 'dotenv';
-import { resolve } from 'path';
+// .env はほかのモジュールより先に読み込む（必ず最初の import にする。理由は env.ts を参照）
+import './env.js';
 import React from 'react';
 import { render } from 'ink';
 import { StateManager } from './state/manager.js';
@@ -18,8 +18,6 @@ import { GitHubAgent } from './agents/github-agent.js';
 import { bus } from './events.js';
 import type { SourceIssue, Task } from './state/types.js';
 import { t } from './utils/i18n.js';
-
-config({ path: resolve('.env') });
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
