@@ -62,6 +62,8 @@ When a finding is useful, write it as: what the code does → what goes wrong or
 
 You MUST respond with ONLY a valid JSON object. NO explanations or markdown.
 
+Write each comment `body` and the `summary` in {{OUTPUT_LANGUAGE}}. Keep code, identifiers, and file paths as they are.
+
 ```json
 {
   "approved": false,

@@ -134,6 +134,28 @@ describe('ACE_LANG による出力言語の切り替え', () => {
     expect(agent.systemPrompt).toContain('詳細なフィードバックを日本語で返します');
   });
 
+  // PR に出る文章（コミットメッセージ・PR・修正の要約・レビューコメント）の言語。
+  // 以前は ACE の CLAUDE.md を Claude が読み込んだため、英語モードでも日本語になっていた
+  it.each([
+    ['coding.md', /Write `commitMessage`, `prTitle`, and `prBody` in (English|日本語)/],
+    ['fix.md', /Write `commitMessage` and `fixSummary` in (English|日本語)/],
+    ['acceptance.md', /Write the commit message and any PR text in (English|日本語)/],
+    ['review.md', /Write each comment `body` and the `summary` in (English|日本語)/],
+  ])('%s は、PR に出る文章を ACE_LANG の言語で書くよう指示する', async (file, pattern) => {
+    process.env.ACE_LANG = 'en';
+    vi.resetModules();
+    const en: any = new (await import('../../agents/base-agent.js')).BaseAgent(file, 'Test');
+    await en.loadSystemPrompt();
+    expect(en.systemPrompt.match(pattern)?.[1]).toBe('English');
+
+    delete process.env.ACE_LANG;
+    delete process.env.LANG;
+    vi.resetModules();
+    const ja: any = new (await import('../../agents/base-agent.js')).BaseAgent(file, 'Test');
+    await ja.loadSystemPrompt();
+    expect(ja.systemPrompt.match(pattern)?.[1]).toBe('日本語');
+  });
+
   it('ACE_LANG も LANG も未設定のときは、従来どおり日本語で出力する', async () => {
     delete process.env.ACE_LANG;
     delete process.env.LANG;

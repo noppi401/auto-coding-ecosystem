@@ -180,6 +180,37 @@ describe('BaseAgent', () => {
     });
   });
 
+  describe('LLM の CLI に渡す指示（ACE 自身の CLAUDE.md を読ませない）', () => {
+    it('Claude のシステムプロンプトに、エージェントのプロンプトとコード生成のルールの両方を入れる', async () => {
+      const { loadCodexProjectInstructions } = await import('../../utils/project-instructions.js');
+      vi.mocked(loadCodexProjectInstructions).mockResolvedValueOnce('RULE: keep changes minimal');
+      const { promises: fs } = await import('fs');
+      const agent = new BaseAgent('', 'CodingAgent');
+      (agent as any).systemPrompt = 'AGENT PROMPT';
+      let systemPrompt = '';
+      vi.spyOn(agent as any, '_execCommand').mockImplementation(async (_cmd: any, args: any) => {
+        const file = (args as string[])[(args as string[]).indexOf('--system-prompt-file') + 1];
+        systemPrompt = await fs.readFile(file, 'utf-8');
+        return CLAUDE_SUCCESS;
+      });
+
+      await agent.invoke('m');
+
+      expect(systemPrompt).toContain('AGENT PROMPT');
+      expect(systemPrompt).toContain('PROJECT RULES:\nRULE: keep changes minimal');
+    });
+
+    it('LLM の CLI は、実行ディレクトリではなく何も置かない専用のディレクトリで起動する', async () => {
+      const { getLlmWorkDir } = await import('../../utils/llm-work-dir.js');
+      const agent = new BaseAgent('', 'CodingAgent');
+
+      const out = await (agent as any)._execCommand('node', ['-e', 'process.stdout.write(process.cwd())']);
+
+      expect(out).toBe(await getLlmWorkDir());
+      expect(out).not.toBe(process.cwd());
+    });
+  });
+
   describe('invoke() - フォールバック（使用量上限エラー）', () => {
     it('Claude が usage limit エラーを返したとき codex にフォールバックする', async () => {
       const { isClaudeUsageLimitMessage, LlmUsageLimitError } =

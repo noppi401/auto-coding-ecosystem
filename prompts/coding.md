@@ -52,6 +52,7 @@ The example below only illustrates the JSON format. Use the language, module sys
 
 ## Guidelines
 
+- Write `commitMessage`, `prTitle`, and `prBody` in {{OUTPUT_LANGUAGE}} (keep the conventional prefix such as `feat:` as is)
 - Write complete, working code (not pseudo-code)
 - Include all imports and dependencies
 - **Language, module system and test framework**: follow what the requirements and design specify. If they do not specify, match the existing project (package.json `type` and scripts, tsconfig.json, existing source and test files). Do not introduce TypeScript, a build step, or new dependencies unless the requirements, design, or existing project call for them

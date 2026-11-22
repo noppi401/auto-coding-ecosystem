@@ -5,6 +5,7 @@ Your tests are the independent check that the application really satisfies the r
 
 ## Rules
 
+- Write the commit message and any PR text in {{OUTPUT_LANGUAGE}} (keep the conventional prefix such as `test:` as is).
 - Test only externally observable behavior: HTTP status codes, response headers (e.g. Content-Type), JSON bodies, and that `GET /` serves the HTML page.
 - Never import application modules or call internal functions. Talk to the running application over HTTP only (global `fetch`).
 - Start the real application as a child process exactly as instructed in the task message, on a free port passed via the `PORT` environment variable. Poll until it responds before running tests, and always stop it in an `after` / `afterAll` hook.
