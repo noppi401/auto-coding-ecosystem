@@ -9,6 +9,7 @@ import { FixOutput } from './fix-agent.js';
 import { logger } from '../utils/logger.js';
 import { resolveCodexBin } from '../utils/codex-bin.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
+import { getLlmWorkDir } from '../utils/llm-work-dir.js';
 import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import {
   LlmUsageLimitError,
@@ -231,9 +232,11 @@ Return ONLY valid JSON with this structure:
   }
 
   private async execCodex(command: string, args: string[], stdin: string, operation: CodexOperation): Promise<string> {
+    // 起動ディレクトリの AGENTS.md（ACE の開発ルール）を読ませない（getLlmWorkDir 参照）
+    const cwd = await getLlmWorkDir();
     return new Promise((resolve, reject) => {
       const child = spawn(command, args, {
-        cwd: process.cwd(),
+        cwd,
         env: process.env,
         stdio: ['pipe', 'pipe', 'pipe'],
       });

@@ -8,6 +8,7 @@ import { resolveClaudeBin } from '../utils/claude-bin.js';
 import { killProcessTree } from '../utils/process-tree.js';
 import { parseClaudeStdout } from '../utils/claude-output.js';
 import { loadCodexProjectInstructions } from '../utils/project-instructions.js';
+import { getLlmWorkDir } from '../utils/llm-work-dir.js';
 import { appendCodexRuntimeArgs, getCodexRuntimeOptions } from '../utils/codex-options.js';
 import { t } from '../utils/i18n.js';
 import {
@@ -300,14 +301,22 @@ export class BaseAgent {
 
       if (this.sessionId && process.env.RESUME_AGENT_SESSIONS === 'true') {
         args.push('--continue', this.sessionId);
-      } else if (this.systemPrompt) {
-        systemPromptFile = join(
-          tmpdir(),
-          `claude-system-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
-        );
-        await fs.writeFile(systemPromptFile, this.systemPrompt);
-        // --system-prompt-file avoids @path quoting issues on Windows
-        args.push('--system-prompt-file', systemPromptFile);
+      } else {
+        // Codex と同じコード生成のルールを渡す（起動ディレクトリの CLAUDE.md は読ませない。getLlmWorkDir 参照）
+        const projectRules = await loadCodexProjectInstructions();
+        const systemPrompt = [
+          this.systemPrompt,
+          projectRules ? `PROJECT RULES:\n${projectRules}` : '',
+        ].filter(Boolean).join('\n\n');
+        if (systemPrompt) {
+          systemPromptFile = join(
+            tmpdir(),
+            `claude-system-${Date.now()}-${Math.random().toString(36).substring(7)}.txt`
+          );
+          await fs.writeFile(systemPromptFile, systemPrompt);
+          // --system-prompt-file avoids @path quoting issues on Windows
+          args.push('--system-prompt-file', systemPromptFile);
+        }
       }
 
       const route = this.getAgentRoute();
@@ -473,6 +482,8 @@ export class BaseAgent {
     } = {}
   ): Promise<string> {
     const claudeBin = command === 'claude' ? await resolveClaudeBin() : null;
+    // 起動ディレクトリの CLAUDE.md / AGENTS.md / GEMINI.md を読ませない（getLlmWorkDir 参照）
+    const cwd = await getLlmWorkDir();
     return new Promise((resolve, reject) => {
       // On Windows, use cmd.exe to execute the command
       const isWindows = process.platform === 'win32';
@@ -481,6 +492,7 @@ export class BaseAgent {
       // This prevents "positional prompt" errors caused by manual string concatenation.
       // ただし claude は cmd.exe 経由だと応答しなくなる事象があるため、実体が見つかれば直接起動する。
       const child = spawn(claudeBin ?? command, args, {
+        cwd,
         env: { ...process.env, ...opts.env },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: isWindows && !claudeBin,

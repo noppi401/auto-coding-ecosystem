@@ -40,6 +40,7 @@ Return only the changed line ranges as `hunks`, using the "N| " line numbers sho
 
 ## Guidelines
 
+- Write `commitMessage` and `fixSummary` in {{OUTPUT_LANGUAGE}} (keep the conventional prefix such as `fix:` as is)
 - Fix ALL blocking issues (non-negotiable)
 - Fix suggestions where they improve code quality
 - Make minimal changes (don't refactor unrelated code)
