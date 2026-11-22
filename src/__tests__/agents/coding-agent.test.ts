@@ -61,6 +61,45 @@ describe('CodingAgent.generateCode: 既存ファイルと他タスクの扱い',
     expect(cappedPrompt).toContain('## DESIGN');
   });
 
+  it('ファイル 0 個で alreadyImplemented: true と答えたら、作り直させずに TaskAlreadyImplementedError を投げる', async () => {
+    const { TaskAlreadyImplementedError } = await import('../../utils/task-errors.js');
+    const agent = new CodingAgent();
+    // ace-test-todo-en2 のタスク 10 で実際に返った形（前のタスクで画面が完成していた）に、合図を加えたもの
+    const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      JSON.stringify({ files: [], alreadyImplemented: true, explanation: 'index.html already implements the UI' })
+    );
+
+    const error = await agent.generateCode(makeTask(), 'req', 'design', {}).catch((e) => e);
+
+    expect(error).toBeInstanceOf(TaskAlreadyImplementedError);
+    expect(error.explanation).toBe('index.html already implements the UI');
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('合図なしのファイル 0 個は、これまでどおり失敗として扱う', async () => {
+    const { TaskAlreadyImplementedError } = await import('../../utils/task-errors.js');
+    const agent = new CodingAgent();
+    vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      JSON.stringify({ files: [], commitMessage: 'feat', prTitle: 't', prBody: 'already done' })
+    );
+
+    const error = await agent.generateCode(makeTask(), 'req', 'design', {}).catch((e) => e);
+
+    expect(error).not.toBeInstanceOf(TaskAlreadyImplementedError);
+    expect(String(error)).toContain('CodingAgent returned zero files');
+  });
+
+  it('実装済みのときの答え方（alreadyImplemented）をプロンプトで伝える', async () => {
+    const agent = new CodingAgent();
+    const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(
+      okResponse([{ path: 'server.js', lines: ['x'] }, { path: 'server.test.js', lines: ['y'] }])
+    );
+
+    await agent.generateCode(makeTask(), 'req', 'design', {});
+
+    expect(invoke.mock.calls[0][0] as string).toContain('"alreadyImplemented": true');
+  });
+
   it('既存ファイルがある場合、既存のコードとテストを保持して追加するよう指示する', async () => {
     const agent = new CodingAgent();
     const invoke = vi.spyOn(agent as any, 'invoke').mockResolvedValue(

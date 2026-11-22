@@ -40,6 +40,7 @@ import { parseTestOutput, formatTestFailureComment } from './utils/parse-test-ou
 import { parseCoverageOutput, formatCoverageComment } from './utils/parse-coverage.js';
 import { selectInstallCommand } from './utils/package-manager.js';
 import { t } from './utils/i18n.js';
+import { TaskAlreadyImplementedError } from './utils/task-errors.js';
 import { decideRequirementsSplit, splitByHeadings, sliceByLineRanges } from './utils/requirements-split.js';
 
 const VALIDATION_PASS_THRESHOLD = parseInt(process.env.VALIDATION_SCORE_THRESHOLD || '70');
@@ -307,6 +308,38 @@ export class Orchestrator {
           errorMessage: undefined,
         });
       } catch (err) {
+        if (err instanceof TaskAlreadyImplementedError) {
+          // 前のタスクで実装済み。失敗にはせずスキップとして記録し、次のタスクへ進む。
+          // スキップしたタスクが残るため、Phase 2 は完了扱いにならない（見落とされないように）
+          logger.warn('Task already implemented by earlier tasks; skipping', {
+            task: task.title,
+            explanation: err.explanation,
+          });
+          await this.stateManager.updateTask(task.id, {
+            status: 'skipped',
+            errorMessage: t(
+              `実装済みのためスキップ: ${err.explanation}`,
+              `Skipped as already implemented: ${err.explanation}`
+            ),
+          });
+          if (task.issueNumber) {
+            try {
+              await this.githubAgent.closeIssue(
+                state.githubOwner,
+                state.githubRepo,
+                task.issueNumber,
+                t(
+                  `前のタスクで実装済みのため、変更なしでスキップしました。\n\n${err.explanation}`,
+                  `Skipped without changes: this task was already implemented by earlier tasks.\n\n${err.explanation}`
+                )
+              );
+            } catch (closeErr) {
+              logger.warn('Failed to close the skipped task issue; continuing', String(closeErr));
+            }
+          }
+          continue;
+        }
+
         if (isLlmUsageLimitError(err)) {
           logger.error(`${err.provider} usage limit reached; stopping Phase 2 immediately`, err);
           await this.stateManager.updateTask(task.id, {
