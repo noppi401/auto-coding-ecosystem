@@ -4,6 +4,7 @@ import { logger } from '../utils/logger.js';
 import { truncateWithWarning } from '../utils/truncate.js';
 import { Hunk, applyHunks, validateHunks } from '../utils/hunks.js';
 import { LlmUsageLimitError, isCodexUsageLimitMessage } from '../utils/llm-errors.js';
+import { TaskAlreadyImplementedError } from '../utils/task-errors.js';
 
 // hunk は行番号で位置を指定するため、既存ファイルには 1 始まりの行番号を付けて見せる（FixAgent と同じ形式）
 const withLineNumbers = (text: string) =>
@@ -204,14 +205,17 @@ Use camelCase keys exactly as shown:
   "commitMessage": "...",
   "prTitle": "...",
   "prBody": "..."
-}`;
+}
+If the existing files already fully implement this task and nothing needs to change, return instead:
+{"files": [], "alreadyImplemented": true, "explanation": "<which existing files already implement it>"}`;
 
     let result = await this.invoke(prompt, 16000);
     let codeOutput: CodeOutput;
     try {
       codeOutput = this.parseCodeFromResponse(result, currentFiles);
     } catch (err) {
-      if (err instanceof LlmUsageLimitError) {
+      // 実装済みの判断は形式の誤りではないため、作り直させない
+      if (err instanceof LlmUsageLimitError || err instanceof TaskAlreadyImplementedError) {
         throw err;
       }
       logger.warn('CodingAgent returned invalid JSON; retrying with stricter output instructions', String(err));
@@ -250,6 +254,11 @@ Use camelCase keys exactly as shown:
     }
 
     if (data.files.length === 0) {
+      // 「実装済みで変更不要」とはっきり答えたときだけ、失敗ではなくスキップの対象にする
+      if (data.alreadyImplemented === true) {
+        const explanation = String(data.explanation || data.prBody || '').trim();
+        throw new TaskAlreadyImplementedError(explanation || '(no explanation)');
+      }
       throw new Error(
         'CodingAgent returned zero files. No commit was attempted; the implementation provider did not produce file changes.'
       );

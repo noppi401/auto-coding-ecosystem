@@ -681,6 +681,34 @@ describe('Orchestrator', () => {
       });
     });
 
+    it('CodingAgent が「前のタスクで実装済み」と答えたタスクはスキップし、Issue を閉じて次のタスクへ進む', async () => {
+      const { TaskAlreadyImplementedError } = await import('../utils/task-errors.js');
+      const { StateManager } = await import('../state/manager.js');
+      const sm = new StateManager(statePath);
+      await sm.initialize('instruction', 'owner', 'repo');
+      await sm.setTasks([
+        makeTask({ id: 't-ui', title: 'Frontend UI', branchName: 'feat/ui', issueNumber: 10 }),
+        makeTask({ id: 't-next', title: 'Acceptance', branchName: 'feat/next', issueNumber: 11 }),
+      ]);
+      mockCodingAgent.generateCode.mockRejectedValueOnce(
+        new TaskAlreadyImplementedError('index.html already implements the UI')
+      );
+
+      await new Orchestrator(statePath).runPhase2();
+
+      const saved = await sm.load();
+      expect(saved?.tasks[0].status).toBe('skipped');
+      expect(saved?.tasks[0].errorMessage).toContain('index.html already implements the UI');
+      expect(mockGitHubAgent.closeIssue).toHaveBeenCalledWith(
+        'owner', 'repo', 10, expect.stringContaining('index.html already implements the UI')
+      );
+      // 失敗で止まらず、次のタスクを処理している
+      expect(mockCodingAgent.generateCode).toHaveBeenCalledTimes(2);
+      expect(saved?.tasks[1].status).toBe('merged');
+      // スキップが残るため完了扱いにしない（見落とされないように）
+      expect(saved?.phase).not.toBe('completed');
+    });
+
     it('skipped タスクは処理せず completed にしない', async () => {
       const { StateManager } = await import('../state/manager.js');
       const sm = new StateManager(statePath);
