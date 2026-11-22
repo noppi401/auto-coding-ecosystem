@@ -18,6 +18,7 @@ import { GitHubAgent } from './agents/github-agent.js';
 import { bus } from './events.js';
 import type { SourceIssue, Task } from './state/types.js';
 import { t } from './utils/i18n.js';
+import { truncate, cleanOneLine, formatTaskDetail } from './utils/task-detail.js';
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -131,9 +132,6 @@ function configureAiTokenMode(provider: LimitProvider): void {
   }
 }
 
-function truncate(v: string, n: number): string {
-  return v.length <= n ? v : v.slice(0, n - 3) + '...';
-}
 
 function formatDuration(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '-';
@@ -182,16 +180,6 @@ function confirmTasksViaInk(tasks: Task[]): Promise<boolean> {
   });
 }
 
-function cleanOneLine(v: string): string {
-  return v.replace(/\s+/g, ' ').trim();
-}
-
-function formatLatestCheckDetail(task: Task): string | null {
-  const visible = (task.lastChecks ?? []).filter((check) => check.status !== 'passed');
-  const latest = visible.length > 0 ? visible[visible.length - 1] : null;
-  if (!latest) return null;
-  return truncate(cleanOneLine(`${latest.name}:${latest.status} ${latest.summary}`), 60);
-}
 
 function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['load']>>>): void {
   const total = state.tasks.length;
@@ -238,10 +226,7 @@ function printFinalState(state: NonNullable<Awaited<ReturnType<StateManager['loa
     const age = formatDuration(
       new Date(task.updatedAt).getTime() - new Date(task.createdAt).getTime()
     );
-    const detail = formatLatestCheckDetail(task)
-      ?? (task.status === 'failed' && task.errorMessage
-        ? truncate(cleanOneLine(task.errorMessage), 60)
-        : task.reviewIteration > 0 ? `iter ${task.reviewIteration}` : '-');
+    const detail = formatTaskDetail(task);
     console.log(
       (i + 1).toString().padEnd(COL.n) + ' ' +
       truncate(task.title, COL.title).padEnd(COL.title) + ' ' +
