@@ -143,6 +143,31 @@ We generated the app from an empty repository about 35 times with this request. 
 - Files that later tasks will create were reported as "missing" → pass the plan for the other tasks.
 - Added a minimal-change perspective to the review (based on [Ponytail](https://github.com/DietrichGebert/ponytail); suggestions only).
 
+## English Mode Run (ace-test-todo-en2)
+
+With `ACE_LANG=en` (set in `.env`), we generated the same ToDo app from an empty repository using the English request shown in [The Request](#the-request). This version includes the fixes made after run 35 (such as sending the full design).
+
+| Item | Result |
+|---|---|
+| Tasks | **10 merged + 1 skipped / 11** (0 failed) |
+| Tests in the generated app | `npm test`: **all 148 pass** (including 25 acceptance tests) |
+| Startup and API checks | `GET /` 200 (HTML), `POST` 201 / malformed JSON 400, `PATCH` 200, `DELETE` 204 / missing id 404 |
+| Run time | About 1 h 1 min (50 min for the first run + 11 min to resume after fixes) |
+| Cost | **$5.77** (36 calls: CodingAgent $3.93, ReviewAgent $0.78, AcceptanceTestAgent $0.63, and others) |
+| Phase 1 | Requirements 88 (A), design 87 (A) |
+| ACE UI and logs | All in English (0 lines of Japanese) |
+
+The tasks were split differently from run 35 (8 tasks), so time, cost, and test counts are not directly comparable.
+
+### Bugs Found and Fixed in English Mode
+
+The first attempt (ace-test-todo-en) stopped after 5 of 9 tasks, and the second stopped after 9 of 11. We fixed each cause, then resumed the second run and it finished.
+
+- `ACE_LANG=en` in `.env` had no effect (the language was decided before `.env` was loaded) → load `.env` before any other module (#14)
+- A Claude timeout was mistaken for a usage limit, so it switched to Codex; Codex then failed with an unsupported-model error, which was also mistaken for a usage limit because Codex echoes the prompt in its output, and Phase 2 stopped → timeouts are never usage limits, and Codex failures are judged only by Codex's own error lines (#15)
+- Claude and Codex loaded ACE's own `CLAUDE.md` and `AGENTS.md` from their working directory (including "write PRs in Japanese"), so PRs and commit messages were in Japanese even in English mode → run the LLM CLIs in an empty dedicated directory, pass the generation rules (`prompts/project-rules.md`) explicitly, and tell them to write PR text in the `ACE_LANG` language (#16–#18). PRs #12–#20, created before this fix, are in Japanese; PR #21, created after it, is in English
+- The page was already complete from an earlier task, so on the "frontend" task CodingAgent answered "no changes needed," and the zero-file answer was treated as a failure → a task the agent reports as already implemented is skipped, and its Issue is closed with the reason before moving on (#19, #20)
+
 ## Remaining Issues
 
 - **Design document is truncated**: the design document (about 18.5k characters) is cut to 4,000 characters for CodingAgent and 3,000 for ReviewAgent. Setting `IMPL_DOC_RELEVANCE=true` sends only the sections relevant to the task, but it was not used in this run. (Fixed after run 35: the full text, up to 40,000 characters, is now sent by default.)
